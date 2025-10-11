@@ -1,0 +1,12 @@
+```
+DIG IT UPDATE 3/16/25
+
+[+] Main
+ + Island
+   + St. Patricks
+
+[+] Automatic
+ + Leprechaun
+   + AutoFarm Leprechaun
+   + AutoDeploy Leprechaun
+```
