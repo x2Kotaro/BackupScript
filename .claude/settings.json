@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__dex__dex_status",
+      "mcp__dex__dex_tree",
+      "mcp__dex__dex_props",
+      "mcp__dex__dex_exec",
+      "mcp__dex__dex_console",
+      "mcp__dex__dex_decompile",
+      "mcp__dex__dex_select",
+      "mcp__dex__dex_inject",
+      "mcp__potassium__list_clients",
+      "mcp__potassium__read_console",
+      "mcp__potassium__execute_script"
+    ]
+  }
+}

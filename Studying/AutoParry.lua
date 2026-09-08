@@ -188,7 +188,6 @@ game:GetService("UserInputService").InputBegan:Connect(function(input, gameProce
     end
 end)
 
-
 for _, player in ipairs(Players:GetPlayers()) do
     if player.Character then
         setupAnimationTracking(player.Character)

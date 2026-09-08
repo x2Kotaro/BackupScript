@@ -1,47 +1,33 @@
-local HttpService = game:GetService("HttpService")
-local checkexecutor = identifyexecutor()
-local Hwid = game:GetService("RbxAnalyticsService"):GetClientId()
+-- check inventory
 
-getgenv().LicenseKey = ""
-
-if not getgenv().LicenseKey then
-    getgenv().LicenseKey = ""
-end
-
--- if checkexecutor == "Xeno" then
---     game.Players.LocalPlayer:kick("Xeno not supported pls check 🟢﹕status in discord")
---     return
--- elseif checkexecutor == "Solara" then
---     game.Players.LocalPlayer:kick("Solara not supported pls check #status in discord")
---     return
--- end
-
-local KeyFile = "Venuz Hub/KeySystem".."/".."VenuzKey"..".txt"
-
-function CheckKey()
-local res = http.request({
-    Url = "https://pandadevelopment.net/v2_validation?key=".. getgenv().LicenseKey.."&service=venuzhub&hwid="..Hwid,
-    Method = "GET",
-    Headers = {
-        ["Content-Type"] = "application/json"
-    },
-}).Body
-
-local sucess, data = pcall(function()
-    return HttpService:JSONDecode(res)
-end)
-
-if sucess then
-    if data["V2_Authentication"] == "success" then
-        if data["Key_Information"].Premium_Mode == true then
-            print("Key Correct | Premium Mode")
-        else
-            print("Key Correct | Free Mode")
-        end
-    else
-        print("Key Invalid")
+local function CheckItem(itemName, mode)
+    local ReplicatedStorage = game:GetService("ReplicatedStorage")
+    local DataPlayer = ReplicatedStorage.Remotes.GetData:InvokeServer(game.Players.LocalPlayer)
+    local Items = require(ReplicatedStorage.Scripts.Items.Items)
+    
+    local IndexMap = {}
+    for name, data in pairs(Items) do
+        IndexMap[data.Index] = name
     end
-end
+    
+    for uuid, itemData in pairs(DataPlayer.Inventory) do
+        local currentItemName = IndexMap[itemData.Index]
+        if currentItemName == itemName then
+            if mode == "value" then
+                return true
+            elseif mode == "name" then
+                return uuid
+            else
+                return uuid
+            end
+        end
+    end
+    
+    if mode == "value" then
+        return false
+    end
+    
+    return nil
 end
 
-CheckKey()
+game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("Inventory"):FireServer(unpack({"UsableItem","8eef0f8d-fdf5-4505-9b0c-869407b49f1f"}))

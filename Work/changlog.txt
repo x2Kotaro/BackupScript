@@ -1,12 +1,12 @@
-```
-DIG IT UPDATE 3/16/25
-
-[+] Main
- + Island
-   + St. Patricks
-
-[+] Automatic
- + Leprechaun
-   + AutoFarm Leprechaun
-   + AutoDeploy Leprechaun
-```
+|| @everyone || 
+## :65731new1::42393new2:  Sorcerer Ascent 2/27/2026
+   - :tts_add_green: **Improved Auto Join Challenge (AFK-Proof)**
+      - เพิ่มระบบ **Underground Safe Zone** วาร์ปลงดินป้องกันการโดนฆ่าหรือโดนลากขณะรอ
+      - เพิ่มระบบ **Anti-Disturbance** วาร์ปดึงตัวกลับเข้าจุดปลอดภัยทันทีเมื่อโดนผลัก/ตายไปเกิดใหม่ 
+      - แก้ไขปัญหา Error "Too Far" สคริปต์สแตนด์บายที่จุดร่วม Challenge ตลอดเวลา 100%
+   - :underdevelopment: ปรับปรุงประสิทธิภาพ Auto Dungeon ให้เสถียรขึ้น
+   - :underdevelopment: ตรวจสอบและแก้ไขระบบ Auto Exit เมื่อจบแมทช์
+   - :tts_add_green: เพิ่ม Auto Challenge
+      - SelectChallenge สามารถเลือกได้หลายตัวเลือก
+      - Auto JoinChallenge เข้าห้อง Challenge ให้ออโต้เมื่อถึงเวลา
+      - Auto Challenge ตีมอนให้ห้อง Challenge เก็บกล่องออโต้ ออกจาก Challenge ออโต้

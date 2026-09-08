@@ -1,8 +1,8 @@
 local NotificationLibrary = loadstring(game:HttpGet("https://raw.githubusercontent.com/IceMinisterq/Notification-Library/Main/Library.lua"))()
 
-if game:GetService("CoreGui"):FindFirstChild("WindUI") then
-    return
+if game:GetService("CoreGui").RobloxGui:FindFirstChild("WindUI") then
     NotificationLibrary:SendNotification("Info", "You already have a script.", 3)
+    return
 end
 
 _G.ConfigurationTable = {}
@@ -97,7 +97,6 @@ local Window = WindUI:CreateWindow({
     Transparent = _G.ConfigurationTable.Transparent,
     Theme = _G.ConfigurationTable.Themes,
     SideBarWidth = 200,
-    HasOutline = true,
 })
 
 local Tabs = {
@@ -107,6 +106,11 @@ local Tabs = {
 }
 
 Tabs.Main:Section({ Title = "Paragraph" })
+
+local Code = Tabs.Main:Code({
+    Title = "Code",
+    Code = [[print("Hello World!")]]
+})
 
 Tabs.Main:Paragraph({
     Title = "Paragraph with Image & Thumbnail",
@@ -414,99 +418,3 @@ WindUI:Notify({
     Icon = VenuzIcon,
     Duration = 5,
 })
-
-local TweenService = game:GetService("TweenService")
-
-local function tweenButton(button, targetSize, duration)
-    local tweenInfo = TweenInfo.new(duration, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-    local tween = TweenService:Create(button, tweenInfo, {Size = targetSize})
-    tween:Play()
-end
-
-if UserInputService.TouchEnabled then
-    local ScreenGui = Instance.new("ScreenGui")
-    local ImageButton = Instance.new("ImageButton")
-    local UICorner = Instance.new("UICorner")
-
-    ScreenGui.Parent = game:GetService("CoreGui"):FindFirstChild("WindUI")
-    ScreenGui.Name = "Venuz-Toggle"
-    ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-
-    ImageButton.Parent = ScreenGui
-    ImageButton.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-    ImageButton.BorderColor3 = Color3.fromRGB(0, 0, 0)
-    ImageButton.BorderSizePixel = 0
-    ImageButton.Position = UDim2.new(0.155857742, 0, 0.213838667, 0)
-    ImageButton.Size = UDim2.new(0, 50, 0, 50)
-    ImageButton.Image = "http://www.roblox.com/asset/?id=72281500336017"
-
-    UICorner.Parent = ImageButton
-
-    ImageButton.MouseButton1Click:Connect(function()
-        tweenButton(ImageButton, UDim2.new(0, 42, 0, 42), 0.05)
-        task.delay(0.05, function()
-            tweenButton(ImageButton, UDim2.new(0, 50, 0, 50), 0.1)
-        end)
-
-        local Frame = game:GetService("CoreGui"):FindFirstChild("WindUI")
-            and game:GetService("CoreGui").WindUI:FindFirstChild("Window")
-            and game:GetService("CoreGui").WindUI.Window:FindFirstChild("Frame")
-        
-        if Frame and Frame.Visible then
-            Window:Close()()
-        else
-            Window:Open()
-        end
-    end)
-
-    function dragify(Frame, object)
-        dragToggle = nil
-        dragSpeed = .10
-        dragInput = nil
-        dragStart = nil
-        dragPos = nil
-        function updateInput(input)
-            Delta = input.Position - dragStart
-            Position =
-                UDim2.new(startPos.X.Scale, startPos.X.Offset + Delta.X, startPos.Y.Scale, startPos.Y.Offset + Delta.Y)
-            game:GetService("TweenService"):Create(object, TweenInfo.new(dragSpeed), {Position = Position}):Play()
-        end
-        ImageButton.InputBegan:Connect(
-            function(input)
-                if
-                    (input.UserInputType == Enum.UserInputType.MouseButton1 or
-                    input.UserInputType == Enum.UserInputType.Touch)
-                then
-                    dragToggle = true
-                    dragStart = input.Position
-                    startPos = object.Position
-                    input.Changed:Connect(
-                        function()
-                            if (input.UserInputState == Enum.UserInputState.End) then
-                                dragToggle = false
-                            end
-                        end
-                    )
-                end
-            end
-        )
-        ImageButton.InputChanged:Connect(
-            function(input)
-                if
-                    (input.UserInputType == Enum.UserInputType.MouseMovement or
-                    input.UserInputType == Enum.UserInputType.Touch)
-                then
-                    dragInput = input
-                end
-            end
-        )
-        game:GetService("UserInputService").InputChanged:Connect(
-            function(input)
-                if (input == dragInput and dragToggle) then
-                    updateInput(input)
-                end
-            end
-        )
-    end
-    dragify(ImageButton, ImageButton)
-end

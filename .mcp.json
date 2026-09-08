@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "dex": {
+      "type": "http",
+      "url": "http://127.0.0.1:8790/mcp"
+    },
+    "studio": {
+      "type": "stdio",
+      "command": "/Applications/RobloxStudio.app/Contents/MacOS/StudioMCP",
+      "args": ["--stdio"]
+    }
+  }
+}

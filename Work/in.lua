@@ -10200,7 +10200,7 @@ addcmd('deleteselectedtool',{'dst'},function(args, speaker)
 end)
 
 addcmd("console", {}, function(args, speaker)
-    StarterGui:SetCore("DevConsoleVisible", true)
+    game:GetService("StarterGui"):SetCore("DevConsoleVisible", true)
 end)
 
 addcmd('oldconsole',{},function(args, speaker)

@@ -806,7 +806,7 @@ local Brainrots = Tabs.Purchase:Toggle({
 local EventTabs = Tabs.Event:Section({ Title = "Event" })
 
 local AutoTrunin = Tabs.Event:Toggle({
-    Title = "Auto Turn In Brainrot",
+    Title = "Auto Return Brainrot",
     Value = getgenv().Settings.Event.Autoturnin,
     Icon = "check",
     Callback = function(Value)
@@ -817,11 +817,15 @@ local AutoTrunin = Tabs.Event:Toggle({
             pcall(function()
                 if Value then
                     while getgenv().Settings.Event.Autoturnin do task.wait(1)
-                        for i,v in pairs(game:GetService("Players").LocalPlayer.PlayerGui.Main.WantedPosterGui.Frame.Main.WantedItem:GetChildren()) do
+                        for i,v in pairs(workspace.Plots[getgenv().MyPlots].EventPlatforms:GetChildren()) do
                             for i2,v2 in pairs(game.Players.LocalPlayer.Backpack:GetChildren()) do
-                                if v.Name == "WantedItem_Title" then
-                                    if v2:GetAttribute("Brainrot") == v.Text then
+                                if v:GetAttribute("Blackout") then
+                                    if v:GetAttribute("VisualBrainrot") == v2:GetAttribute("Brainrot") then
                                         game.Players.LocalPlayer.Character.Humanoid:EquipTool(v2)
+                                        game.Players.LocalPlayer.Character.HumanoidRootPart.CFrame = v:FindFirstChild("Hitbox").CFrame
+                                        task.wait(.5)
+                                        fireproximityprompt(v:FindFirstChild("Hitbox"):FindFirstChild("ProximityPrompt"))
+                                        break
                                     end
                                 end
                             end
