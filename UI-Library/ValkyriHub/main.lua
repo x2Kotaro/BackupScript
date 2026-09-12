@@ -270,20 +270,25 @@ local Library do
         ["RightAlt"]          = "RightAlt"
     }
 
+    -- One palette, built the way a terminal colour scheme is: a near-black ground, four
+    -- surfaces a step apart from it so panels stack without borders doing the work, one
+    -- divider grey, and a single green that is the only saturated colour on screen. Every
+    -- shade is cool (more blue than red) because that is what separates a Linux dark theme
+    -- from the warm grey of a game menu.
     local Themes = {
         ["Preset"] = {
-            ["AccentGradient"] = FromRGB(0, 195, 255),   -- Slightly deeper blue accent
-            ["Background 2"] = FromRGB(10, 10, 12),      -- Very dark gray
-            ["Background"] = FromRGB(12, 12, 14),        -- Main near-black background
-            ["Text"] = FromRGB(235, 235, 235),           -- Slightly dimmed light text
-            ["Outline"] = FromRGB(46, 46, 54),           -- Outline, separators, inactive row bar
-            ["Section Top"] = FromRGB(26, 26, 31),       -- Dark section header
-            ["Section Background"] = FromRGB(15, 15, 18),-- Section body, darker than elements
-            ["Section Background 2"] = FromRGB(18, 18, 21),-- Alternate section
-            ["Accent"] = FromRGB(0, 116, 224),           -- Darker blue accent for consistency
-            ["Element"] = FromRGB(38, 38, 45),           -- Controls: button, slider track, dropdown box
-            ["Element Background"] = FromRGB(26, 26, 31),-- Card behind each element row
-            ["Element Hover"] = FromRGB(46, 46, 54)      -- Card hover state
+            ["Accent"] = FromRGB(61, 220, 132),            -- prompt green, the one saturated colour
+            ["AccentGradient"] = FromRGB(38, 166, 154),    -- teal tail, so gradients read as a glow
+            ["Background"] = FromRGB(11, 14, 20),          -- the window ground
+            ["Background 2"] = FromRGB(15, 19, 26),        -- popouts that sit above the ground
+            ["Outline"] = FromRGB(38, 48, 62),             -- dividers and rules, never a full border
+            ["Section Top"] = FromRGB(22, 28, 37),         -- pane title bar
+            ["Section Background"] = FromRGB(14, 18, 25),  -- pane body
+            ["Section Background 2"] = FromRGB(18, 23, 31),-- pane shell
+            ["Element"] = FromRGB(26, 33, 43),             -- controls: inputs, buttons, tracks
+            ["Element Background"] = FromRGB(20, 26, 35),  -- the row a control sits in
+            ["Element Hover"] = FromRGB(35, 45, 58),       -- row under the cursor
+            ["Text"] = FromRGB(200, 211, 224)              -- foreground
         }
     }
 
@@ -426,6 +431,19 @@ local Library do
 
             if CurrentName == "\0" or CurrentName == "" then
                 NewItem.Instance.Name = Class
+            end
+
+            -- One place decides how round the whole library is, rather than three hundred
+            -- call sites each picking 4, 5 or 6. A tiling window manager draws tight corners,
+            -- so every panel radius is pulled to the crisp end here. Anything above 8 or with
+            -- a scale component is a deliberate circle or pill -- traffic lights, toggle
+            -- knobs, status dots -- and is left exactly as the call site asked for.
+            if Class == "UICorner" then
+                local Radius = NewItem.Instance.CornerRadius
+
+                if Radius.Scale == 0 and Radius.Offset >= 1 and Radius.Offset <= 8 then
+                    NewItem.Instance.CornerRadius = UDimNew(0, math.min(3, Radius.Offset))
+                end
             end
 
             return NewItem
@@ -2972,7 +2990,9 @@ local Library do
                     -- the shared Backdrop paints this area, the tab frame itself stays invisible
                     BackgroundTransparency = 1,
                     Position = UDim2New(0, 0, 0, 0),
-                    Size = UDim2New(0, 225, 1, 0),
+                    -- 24 short of the bottom: the status line below runs the full width of the
+                    -- window, sidebar included, and tabs must not scroll underneath it
+                    Size = UDim2New(0, 225, 1, -24),
                     ZIndex = 2,
                     BorderSizePixel = 0,
                     BackgroundColor3 = FromRGB(27, 25, 29),
@@ -3005,6 +3025,57 @@ local Library do
                     Name = "\0",
                     CornerRadius = UDimNew(0, 4)
                 })
+
+                -- A window manager draws a hairline around the frame it owns, and without one
+                -- a dark menu over a dark game has no edge at all -- it reads as a hole rather
+                -- than a window. One stroke on the shared backdrop covers the sidebar and the
+                -- content in a single outline, which is the point of them sharing a rectangle.
+                Instances:Create("UIStroke", {
+                    Parent = Items["Backdrop"].Instance,
+                    Name = "\0",
+                    Thickness = 1,
+                    Transparency = 0.15,
+                    ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+                    Color = FromRGB(38, 48, 62)
+                }):AddToTheme({Color = "Outline"})
+
+                -- The title strip. A GNOME header bar is a solid band with the window controls
+                -- inside it and a rule underneath, and that rule is what tells the eye where
+                -- the chrome stops and the content starts -- the old header was loose text
+                -- floating on the same flat colour as the page below it.
+                --
+                -- It is a sibling of the traffic lights rather than their parent, and it is
+                -- built here, before them: at equal ZIndex the later sibling draws on top, and
+                -- the buttons have to stay on top of the band they sit in.
+                Items["HeaderBar"] = Instances:Create("Frame", {
+                    Parent = Items["MainFrame"].Instance,
+                    Name = "\0",
+                    BorderColor3 = FromRGB(0, 0, 0),
+                    BackgroundTransparency = 1,
+                    Position = UDim2New(0, 0, 0, 0),
+                    Size = UDim2New(1, 0, 0, 55),
+                    ZIndex = 1,
+                    BorderSizePixel = 0,
+                    BackgroundColor3 = FromRGB(11, 14, 20)
+                })  Items["HeaderBar"]:AddToTheme({BackgroundColor3 = "Background"})
+
+                Instances:Create("UICorner", {
+                    Parent = Items["HeaderBar"].Instance,
+                    Name = "\0",
+                    CornerRadius = UDimNew(0, 4)
+                })
+
+                Items["HeaderRule"] = Instances:Create("Frame", {
+                    Parent = Items["HeaderBar"].Instance,
+                    Name = "\0",
+                    BorderColor3 = FromRGB(0, 0, 0),
+                    AnchorPoint = Vector2New(0, 1),
+                    Position = UDim2New(0, 0, 1, 0),
+                    Size = UDim2New(1, 0, 0, 1),
+                    ZIndex = 2,
+                    BorderSizePixel = 0,
+                    BackgroundColor3 = FromRGB(38, 48, 62)
+                })  Items["HeaderRule"]:AddToTheme({BackgroundColor3 = "Outline"})
 
                 local Gui = Items["MainFrame"].Instance
 
@@ -3401,6 +3472,7 @@ local Library do
                     Size = UDim2New(0, 35, 0, 35),
                     Image = "rbxassetid://"..Window.Logo,
                     BackgroundTransparency = 1,
+                    -- back at the left edge: the traffic lights that pushed it to 76 are gone
                     Position = UDim2New(0, 12, 0, 12),
                     ZIndex = 2,
                     BorderSizePixel = 0,
@@ -3470,14 +3542,254 @@ local Library do
                     Parent = Items["MainFrame"].Instance,
                     Name = "\0",
                     BorderColor3 = FromRGB(0, 0, 0),
-                    BackgroundTransparency = 0.75,
+                    BackgroundTransparency = 1,
                     Position = UDim2New(0, 0, 0, 55),
-                    Size = UDim2New(1, 0, 1, -55),
+                    -- 55 of header above, 24 of status line below
+                    Size = UDim2New(1, 0, 1, -79),
                     ZIndex = 2,
                     BorderSizePixel = 0,
                     BackgroundColor3 = FromRGB(27, 25, 29)
                 })  Items["Content"]:AddToTheme({BackgroundColor3 = "Background"})
 
+                -- The status line. tmux and every tiling setup keep one along the bottom, and
+                -- it earns its 24 pixels here rather than just looking the part: "how many
+                -- toggles am I actually running" is a question this menu could not answer
+                -- without walking every page by hand. It spans the sidebar as well, so the
+                -- window has one continuous foot instead of a bar that stops halfway across.
+                Items["StatusBar"] = Instances:Create("Frame", {
+                    Parent = Items["MainFrame"].Instance,
+                    Name = "\0",
+                    BorderColor3 = FromRGB(0, 0, 0),
+                    BackgroundTransparency = 0.3,
+                    AnchorPoint = Vector2New(0, 1),
+                    Position = UDim2New(0, -225, 1, 0),
+                    Size = UDim2New(1, 225, 0, 24),
+                    ZIndex = 2,
+                    BorderSizePixel = 0,
+                    BackgroundColor3 = FromRGB(22, 28, 37)
+                })  Items["StatusBar"]:AddToTheme({BackgroundColor3 = "Section Top"})
+
+                Instances:Create("UICorner", {
+                    Parent = Items["StatusBar"].Instance,
+                    Name = "\0",
+                    CornerRadius = UDimNew(0, 4)
+                })
+
+                Instances:Create("Frame", {
+                    Parent = Items["StatusBar"].Instance,
+                    Name = "\0",
+                    BorderColor3 = FromRGB(0, 0, 0),
+                    Position = UDim2New(0, 0, 0, 0),
+                    Size = UDim2New(1, 0, 0, 1),
+                    ZIndex = 3,
+                    BorderSizePixel = 0,
+                    BackgroundColor3 = FromRGB(38, 48, 62)
+                }):AddToTheme({BackgroundColor3 = "Outline"})
+
+                -- The prompt lives down here rather than in the header, and that is not only
+                -- to keep it clear of the window buttons: a status line is where a shell
+                -- prompt belongs, and the header goes back to being a title bar -- name on the
+                -- left, controls on the right, nothing competing in between.
+                Items["StatusLeft"] = Instances:Create("Frame", {
+                    Parent = Items["StatusBar"].Instance,
+                    Name = "\0",
+                    BorderColor3 = FromRGB(0, 0, 0),
+                    AnchorPoint = Vector2New(0, 0.5),
+                    Position = UDim2New(0, 12, 0.5, 0),
+                    Size = UDim2New(0, 0, 0, 16),
+                    AutomaticSize = Enum.AutomaticSize.X,
+                    BackgroundTransparency = 1,
+                    ZIndex = 3,
+                    BorderSizePixel = 0,
+                    BackgroundColor3 = FromRGB(255, 255, 255)
+                })
+
+                Instances:Create("UIListLayout", {
+                    Parent = Items["StatusLeft"].Instance,
+                    Name = "\0",
+                    FillDirection = Enum.FillDirection.Horizontal,
+                    VerticalAlignment = Enum.VerticalAlignment.Center,
+                    SortOrder = Enum.SortOrder.LayoutOrder,
+                    Padding = UDimNew(0, 5)
+                })
+
+                Items["PromptText"] = Instances:Create("TextLabel", {
+                    Parent = Items["StatusLeft"].Instance,
+                    Name = "\0",
+                    FontFace = Library.Font,
+                    TextColor3 = FromRGB(200, 211, 224),
+                    BorderColor3 = FromRGB(0, 0, 0),
+                    Text = "",
+                    RichText = true,
+                    AutomaticSize = Enum.AutomaticSize.X,
+                    Size = UDim2New(0, 0, 0, 14),
+                    BackgroundTransparency = 1,
+                    TextXAlignment = Enum.TextXAlignment.Left,
+                    TextTruncate = Enum.TextTruncate.AtEnd,
+                    BorderSizePixel = 0,
+                    LayoutOrder = 1,
+                    ZIndex = 3,
+                    TextSize = 12,
+                    BackgroundColor3 = FromRGB(255, 255, 255)
+                })
+
+                -- the cursor. A prompt that does not blink is a screenshot of a terminal
+                Items["PromptCaret"] = Instances:Create("Frame", {
+                    Parent = Items["StatusLeft"].Instance,
+                    Name = "\0",
+                    BorderColor3 = FromRGB(0, 0, 0),
+                    Size = UDim2New(0, 6, 0, 12),
+                    LayoutOrder = 2,
+                    ZIndex = 3,
+                    BorderSizePixel = 0,
+                    BackgroundColor3 = FromRGB(61, 220, 132)
+                })  Items["PromptCaret"]:AddToTheme({BackgroundColor3 = "Accent"})
+
+                Library:Thread(function()
+                    local Caret = Items["PromptCaret"].Instance
+
+                    while Caret.Parent do
+                        Caret.BackgroundTransparency = Caret.BackgroundTransparency > 0.5 and 0 or 1
+
+                        task.wait(0.53)
+                    end
+                end)
+
+                -- counters on the right, laid out rather than positioned so the dot stays
+                -- glued to the text however wide the numbers get
+                Items["StatusRightBox"] = Instances:Create("Frame", {
+                    Parent = Items["StatusBar"].Instance,
+                    Name = "\0",
+                    BorderColor3 = FromRGB(0, 0, 0),
+                    AnchorPoint = Vector2New(1, 0.5),
+                    Position = UDim2New(1, -26, 0.5, 0),
+                    Size = UDim2New(0, 0, 0, 16),
+                    AutomaticSize = Enum.AutomaticSize.X,
+                    BackgroundTransparency = 1,
+                    ZIndex = 3,
+                    BorderSizePixel = 0,
+                    BackgroundColor3 = FromRGB(255, 255, 255)
+                })
+
+                Instances:Create("UIListLayout", {
+                    Parent = Items["StatusRightBox"].Instance,
+                    Name = "\0",
+                    FillDirection = Enum.FillDirection.Horizontal,
+                    VerticalAlignment = Enum.VerticalAlignment.Center,
+                    SortOrder = Enum.SortOrder.LayoutOrder,
+                    Padding = UDimNew(0, 7)
+                })
+
+                Items["StatusDot"] = Instances:Create("Frame", {
+                    Parent = Items["StatusRightBox"].Instance,
+                    Name = "\0",
+                    BorderColor3 = FromRGB(0, 0, 0),
+                    Size = UDim2New(0, 6, 0, 6),
+                    LayoutOrder = 1,
+                    ZIndex = 3,
+                    BorderSizePixel = 0,
+                    BackgroundColor3 = FromRGB(61, 220, 132)
+                })  Items["StatusDot"]:AddToTheme({BackgroundColor3 = "Accent"})
+
+                Instances:Create("UICorner", {
+                    Parent = Items["StatusDot"].Instance,
+                    Name = "\0",
+                    CornerRadius = UDimNew(1, 0)
+                })
+
+                Items["StatusText"] = Instances:Create("TextLabel", {
+                    Parent = Items["StatusRightBox"].Instance,
+                    Name = "\0",
+                    FontFace = Library.Font,
+                    TextColor3 = FromRGB(200, 211, 224),
+                    TextTransparency = 0.25,
+                    BorderColor3 = FromRGB(0, 0, 0),
+                    Text = "0 active",
+                    AutomaticSize = Enum.AutomaticSize.X,
+                    Size = UDim2New(0, 0, 0, 14),
+                    BackgroundTransparency = 1,
+                    TextXAlignment = Enum.TextXAlignment.Left,
+                    BorderSizePixel = 0,
+                    LayoutOrder = 2,
+                    ZIndex = 3,
+                    TextSize = 12,
+                    BackgroundColor3 = FromRGB(255, 255, 255)
+                })  Items["StatusText"]:AddToTheme({TextColor3 = "Text"})
+
+                Items["StatusRight"] = Instances:Create("TextLabel", {
+                    Parent = Items["StatusRightBox"].Instance,
+                    Name = "\0",
+                    FontFace = Library.Font,
+                    TextColor3 = FromRGB(200, 211, 224),
+                    TextTransparency = 0.45,
+                    BorderColor3 = FromRGB(0, 0, 0),
+                    Text = "-- fps",
+                    AutomaticSize = Enum.AutomaticSize.X,
+                    Size = UDim2New(0, 0, 0, 14),
+                    BackgroundTransparency = 1,
+                    TextXAlignment = Enum.TextXAlignment.Right,
+                    BorderSizePixel = 0,
+                    LayoutOrder = 3,
+                    ZIndex = 3,
+                    TextSize = 12,
+                    BackgroundColor3 = FromRGB(255, 255, 255)
+                })  Items["StatusRight"]:AddToTheme({TextColor3 = "Text"})
+
+                -- A toggle is "on" either as a plain boolean flag or as a keybind's Toggled
+                -- field, and both shapes live in the same Flags table, so both are counted.
+                local function ActiveFlags()
+                    local Count = 0
+
+                    for _, Value in pairs(Library.Flags) do
+                        if Value == true then
+                            Count = Count + 1
+                        elseif type(Value) == "table" and rawget(Value, "Toggled") == true then
+                            Count = Count + 1
+                        end
+                    end
+
+                    return Count
+                end
+
+                do
+                    -- Sampled over half a second rather than read off one frame: a per-frame
+                    -- 1/Delta flickers through a 20 fps range and is unreadable, and half a
+                    -- second is also slow enough that the text is not being rebuilt 60 times
+                    -- a second for a number nobody can follow that fast.
+                    local Elapsed = 0
+                    local Frames = 0
+
+                    Library:Connect(RunService.Heartbeat, function(Delta)
+                        Elapsed = Elapsed + Delta
+                        Frames = Frames + 1
+
+                        if Elapsed < 0.5 then
+                            return
+                        end
+
+                        local Fps = MathFloor(Frames / Elapsed + 0.5)
+
+                        Elapsed = 0
+                        Frames = 0
+
+                        if not Items["StatusRight"].Instance.Parent then
+                            return
+                        end
+
+                        Items["StatusRight"].Instance.Text = StringFormat("%d fps · %s", Fps, os.date("%H:%M"))
+
+                        local Count = ActiveFlags()
+
+                        Items["StatusText"].Instance.Text = StringFormat("%d active", Count)
+                        Items["StatusDot"].Instance.BackgroundTransparency = Count > 0 and 0 or 0.65
+                    end)
+                end
+
+                -- Window controls, top right, the way they were before the traffic lights went
+                -- in: an X at the corner and the settings button beside it. Three coloured
+                -- circles on the LEFT is a GNOME quote rather than a control -- it puts the
+                -- close button where nothing else in this menu is clickable, colour-codes it
+                -- as a decoration, and shrinks the target from 32px to 14.
                 Items["CloseButton"] = Instances:Create("TextButton", {
                     Parent = Items["MainFrame"].Instance,
                     Name = "\0",
@@ -3491,17 +3803,17 @@ local Library do
                     BackgroundTransparency = 0.20000000298023224,
                     Position = UDim2New(1, -14, 0, 11),
                     Size = UDim2New(0, 32, 0, 32),
-                    ZIndex = 2,
+                    ZIndex = 3,
                     TextSize = 14,
                     BackgroundColor3 = FromRGB(27, 25, 29)
                 })  Items["CloseButton"]:AddToTheme({BackgroundColor3 = "Element"})
-                
+
                 Instances:Create("UICorner", {
                     Parent = Items["CloseButton"].Instance,
                     Name = "\0",
                     CornerRadius = UDimNew(0, 7)
                 })
-                
+
                 Items["CloseIcon"] = Instances:Create("ImageLabel", {
                     Parent = Items["CloseButton"].Instance,
                     Name = "\0",
@@ -3513,10 +3825,10 @@ local Library do
                     Image = "rbxassetid://130510492706892",
                     BackgroundTransparency = 1,
                     Position = UDim2New(0.5, 0, 0.5, 0),
-                    ZIndex = 3,
+                    ZIndex = 4,
                     BorderSizePixel = 0,
                     BackgroundColor3 = FromRGB(255, 255, 255)
-                })  Items["CloseIcon"]:AddToTheme({ImageColor3 = "Text"})        
+                })  Items["CloseIcon"]:AddToTheme({ImageColor3 = "Text"})
                 
                 Items["CloseIconAccent"] = Instances:Create("Frame", {
                     Parent = Items["CloseButton"].Instance,
@@ -3526,7 +3838,7 @@ local Library do
                     BorderSizePixel = 0,
                     Position = UDim2New(0.5, 0, 0.5, 0),
                     Size = UDim2New(0, 0, 0, 0),
-                    ZIndex = 2,
+                    ZIndex = 3,
                     BackgroundTransparency = 1,
                     BackgroundColor3 = FromRGB(255, 255, 255)
                 })
@@ -3554,6 +3866,33 @@ local Library do
                     Items["Backdrop"].Instance.BackgroundTransparency = Library.Flags["BackgroundTransparency"]
                 end
 
+                -- Written out rather than recoloured in place: rich text bakes the colour in
+                -- at write time and the accent is a live setting, so the line is rebuilt on
+                -- every page change and picks up whatever the accent has become by then.
+                -- Coloured the way a bash PS1 is -- identity in green, path plain, sigil green.
+                function Window:SetPrompt(Path)
+                    if Path then
+                        Window.Path = Path
+                    end
+
+                    local User = StringLower(StringFind(Window.Name, "%w") and Window.Name:match("%w+") or "valkyrie")
+                    local Where = Library:Translate(Window.Path or "home")
+                    local Slug = StringLower(StringGSub(Where, "%s+", "-"))
+
+                    Items["PromptText"].Instance.Text = StringFormat(
+                        "%s%s%s",
+                        Library:ToRich(User .. "@hub", Library.Theme.Accent),
+                        Library:ToRich(":~/" .. Slug .. " ", Library.Theme.Text),
+                        Library:ToRich("$", Library.Theme.Accent)
+                    )
+                end
+
+                Window:SetPrompt()
+
+                Library:OnLocaleChanged(function()
+                    Window:SetPrompt()
+                end)
+
                 function Window:SetUIScale()
                     local UIScale = Items["MainFrame"].Instance:FindFirstChildOfClass("UIScale")
 
@@ -3579,7 +3918,11 @@ local Library do
                     return RGBSequence{RGBSequenceKeypoint(0, Library.Theme.Accent), RGBSequenceKeypoint(1, Library.Theme.AccentGradient)}
                 end})
 
-                -- Minimize Button (hidden - X button now minimizes)
+                -- Linux Minimize / Yellow Circle Button
+                -- Hidden, as it was: the X closes the window and the window is reopened with
+                -- the keybind or the floating button, so a second button for the same thing
+                -- is a row of chrome doing nothing. Parked left of the settings button so it
+                -- lands somewhere sane if anything ever sets it visible.
                 Items["MinimizeButton"] = Instances:Create("TextButton", {
                     Parent = Items["MainFrame"].Instance,
                     Name = "\0",
@@ -3592,13 +3935,13 @@ local Library do
                     AnchorPoint = Vector2New(1, 0),
                     BorderSizePixel = 0,
                     BackgroundTransparency = 0.20000000298023224,
-                    Position = UDim2New(1, -56, 0, 11),
+                    Position = UDim2New(1, -98, 0, 11),
                     Size = UDim2New(0, 32, 0, 32),
-                    ZIndex = 2,
+                    ZIndex = 3,
                     TextSize = 14,
                     BackgroundColor3 = FromRGB(27, 25, 29)
                 })  Items["MinimizeButton"]:AddToTheme({BackgroundColor3 = "Element"})
-                
+
                 Instances:Create("UICorner", {
                     Parent = Items["MinimizeButton"].Instance,
                     Name = "\0",
@@ -3616,7 +3959,7 @@ local Library do
                     Image = "rbxassetid://79384247470010",
                     BackgroundTransparency = 1,
                     Position = UDim2New(0.5, 0, 0.5, 0),
-                    ZIndex = 3,
+                    ZIndex = 4,
                     BorderSizePixel = 0,
                     BackgroundColor3 = FromRGB(255, 255, 255)
                 })  Items["MinimizeIcon"]:AddToTheme({ImageColor3 = "Text"})
@@ -3629,7 +3972,7 @@ local Library do
                     BorderSizePixel = 0,
                     Position = UDim2New(0.5, 0, 0.5, 0),
                     Size = UDim2New(0, 0, 0, 0),
-                    ZIndex = 2,
+                    ZIndex = 3,
                     BackgroundTransparency = 1,
                     BackgroundColor3 = FromRGB(255, 255, 255)
                 })
@@ -3667,6 +4010,7 @@ local Library do
                     Window:SetOpen(false)
                 end)
 
+                -- Linux Green Circle Button (Window Settings/Expand)
                 Items["SettingsButton"] = Instances:Create("TextButton", {
                     Parent = Items["MainFrame"].Instance,
                     Name = "\0",
@@ -3680,11 +4024,11 @@ local Library do
                     BackgroundTransparency = 0.20000000298023224,
                     Position = UDim2New(1, -56, 0, 11),
                     Size = UDim2New(0, 32, 0, 32),
-                    ZIndex = 2,
+                    ZIndex = 3,
                     TextSize = 14,
                     BackgroundColor3 = FromRGB(27, 25, 29)
                 })  Items["SettingsButton"]:AddToTheme({BackgroundColor3 = "Element"})
-                
+
                 Instances:Create("UICorner", {
                     Parent = Items["SettingsButton"].Instance,
                     Name = "\0",
@@ -3702,7 +4046,7 @@ local Library do
                     Image = "rbxassetid://122669828593160",
                     BackgroundTransparency = 1,
                     Position = UDim2New(0.5, 0, 0.5, 0),
-                    ZIndex = 3,
+                    ZIndex = 4,
                     BorderSizePixel = 0,
                     BackgroundColor3 = FromRGB(255, 255, 255)
                 })  Items["SettingsIcon"]:AddToTheme({ImageColor3 = "Text"})
@@ -3715,7 +4059,7 @@ local Library do
                     BorderSizePixel = 0,
                     Position = UDim2New(0.5, 0, 0.5, 0),
                     Size = UDim2New(0, 0, 0, 0),
-                    ZIndex = 2,
+                    ZIndex = 3,
                     BackgroundTransparency = 1,
                     BackgroundColor3 = FromRGB(255, 255, 255)
                 })
@@ -4094,12 +4438,96 @@ local Library do
                 return Library:AddLanguages(Languages)
             end
 
+            -- A window taller than the screen is not a cosmetic problem, and it is what was
+            -- actually wrong with the close button: the frame ships at 677x644, a 1032x665
+            -- screen leaves 607 usable once the topbar inset is taken off, and SetCenter
+            -- happily parks the top 18px above the viewport. The first thing off the top of
+            -- the screen is the row of window controls, so the close button gets clipped or
+            -- lost entirely -- moving it around the header never fixes that, only fitting the
+            -- window to the screen does.
+            --
+            -- Sizes here are the frame's own units and the screen is in real pixels, so every
+            -- comparison goes through the UIScale the mobile branch may have added.
+            function Window:Fit()
+                local Holder = Library.Holder and Library.Holder.Instance
+
+                if not Holder then
+                    return
+                end
+
+                local Frame = Items["MainFrame"].Instance
+                local Area = Holder.AbsoluteSize
+
+                if Area.X < 1 or Area.Y < 1 then
+                    return
+                end
+
+                local Scale = 1
+                local UIScale = Frame:FindFirstChildOfClass("UIScale")
+
+                if UIScale and UIScale.Scale > 0 then
+                    Scale = UIScale.Scale
+                end
+
+                local Margin = 12
+                local Sidebar = 225
+
+                local Width = MathClamp(
+                    Frame.Size.X.Offset,
+                    400,
+                    math.max(400, (Area.X - Margin * 2) / Scale - Sidebar)
+                )
+
+                local Height = MathClamp(
+                    Frame.Size.Y.Offset,
+                    300,
+                    math.max(300, (Area.Y - Margin * 2) / Scale)
+                )
+
+                if Width ~= Frame.Size.X.Offset or Height ~= Frame.Size.Y.Offset then
+                    Frame.Size = UDim2FromOffset(Width, Height)
+                end
+
+                -- Position is only worth clamping once SetCenter has swapped the frame over to
+                -- absolute offsets. Before that it is still anchored in the middle by scale,
+                -- and writing offsets into it would tear it off centre.
+                if Frame.AnchorPoint.X ~= 0 or Frame.AnchorPoint.Y ~= 0 then
+                    return
+                end
+
+                -- the sidebar hangs 225 to the LEFT of the frame, so the frame's own left edge
+                -- can never sit closer to the screen edge than that
+                local MinX = Margin + Sidebar * Scale
+                local MaxX = math.max(MinX, Area.X - Margin - Width * Scale)
+                local MaxY = math.max(Margin, Area.Y - Margin - Height * Scale)
+
+                Frame.Position = UDim2New(
+                    0, MathClamp(Frame.Position.X.Offset, MinX, MaxX),
+                    0, MathClamp(Frame.Position.Y.Offset, Margin, MaxY)
+                )
+            end
+
             function Window:SetCenter()
+                -- fitted first, so the centring below is done with the size it will keep
+                Window:Fit()
+
                 local CenterPosition = Items["MainFrame"].Instance.AbsolutePosition
                 task.wait()
                 Items["MainFrame"].Instance.AnchorPoint = Vector2New(0, 0)
 
                 Items["MainFrame"].Instance.Position = UDim2New(0, CenterPosition.X, 0, CenterPosition.Y)
+
+                Window:Fit()
+            end
+
+            -- a rotation, a resized client window or a different safe area all change the
+            -- usable rectangle after the window has already been placed in it
+            if Camera then
+                Library:Connect(Camera:GetPropertyChangedSignal("ViewportSize"), function()
+                    task.defer(function()
+                        Window:Fit()
+                    end)
+                end)
             end
 
             function Window:SetOpen(Bool)
@@ -4635,26 +5063,54 @@ local Library do
             end
         end
 
+        -- The group heading above a run of tabs. It used to be the same size and weight as the
+        -- tab labels under it, so it read as another tab rather than as the thing naming them.
+        -- Now it is small, accent-tinted and underlined by a hairline: a heading, not an entry.
         Library.Category = function(self, Name)
-            local Items = { } do 
-                Items["Category"] = Instances:Create("TextLabel", {
+            local Items = { } do
+                Items["Category"] = Instances:Create("Frame", {
                     Parent = self.Items["LeftTabs"].Instance,
                     Name = "\0",
-                    FontFace = Library.Font,
-                    TextColor3 = FromRGB(240, 240, 240),
-                    TextTransparency = 0.4000000059604645,
+                    BackgroundTransparency = 1,
+                    Size = UDim2New(1, 0, 0, 20),
+                    BorderSizePixel = 0,
+                    BorderColor3 = FromRGB(0, 0, 0),
+                    ZIndex = 2,
+                    BackgroundColor3 = FromRGB(255, 255, 255)
+                })
+
+                Items["Text"] = Instances:Create("TextLabel", {
+                    Parent = Items["Category"].Instance,
+                    Name = "\0",
+                    FontFace = Library.Fonts and Library.Fonts.SemiBold or Library.Font,
+                    TextColor3 = FromRGB(61, 220, 132),
+                    TextTransparency = 0.3,
                     Text = Name,
                     AutomaticSize = Enum.AutomaticSize.X,
-                    Size = UDim2New(1, 0, 0, 15),
+                    Size = UDim2New(0, 0, 0, 13),
+                    Position = UDim2New(0, 2, 0, 0),
                     BorderSizePixel = 0,
                     BackgroundTransparency = 1,
                     TextXAlignment = Enum.TextXAlignment.Left,
                     BorderColor3 = FromRGB(0, 0, 0),
                     ZIndex = 2,
-                    TextSize = 14,
+                    TextSize = 11,
                     BackgroundColor3 = FromRGB(255, 255, 255)
-                })  Items["Category"]:AddToTheme({TextColor3 = "Text"})
-                    Items["Category"]:AddToLocale({Text = Name})
+                })  Items["Text"]:AddToTheme({TextColor3 = "Accent"})
+                    Items["Text"]:AddToLocale({Text = Name})
+
+                Instances:Create("Frame", {
+                    Parent = Items["Category"].Instance,
+                    Name = "\0",
+                    BorderColor3 = FromRGB(0, 0, 0),
+                    AnchorPoint = Vector2New(0, 1),
+                    Position = UDim2New(0, 0, 1, -3),
+                    Size = UDim2New(1, 0, 0, 1),
+                    BackgroundTransparency = 0.35,
+                    ZIndex = 2,
+                    BorderSizePixel = 0,
+                    BackgroundColor3 = FromRGB(38, 48, 62)
+                }):AddToTheme({BackgroundColor3 = "Outline"})
             end
         end
 
@@ -4702,6 +5158,29 @@ local Library do
                     Name = "\0",
                     Transparency = NumSequence{NumSequenceKeypoint(0, 0.41874998807907104), NumSequenceKeypoint(0.445, 0.78125), NumSequenceKeypoint(0.751, 0.9375), NumSequenceKeypoint(1, 1)}
                 })
+
+                -- The active-pane marker. A tinted row alone is a weak signal against a dark
+                -- theme -- half the sidebar looks the same at a glance -- and every tiling
+                -- WM and editor sidebar answers this the same way: a hard bar on the leading
+                -- edge. It grows out of nothing rather than fading, so switching pages reads
+                -- as the marker moving down the list.
+                Items["Marker"] = Instances:Create("Frame", {
+                    Parent = Items["Inactive"].Instance,
+                    Name = "\0",
+                    BorderColor3 = FromRGB(0, 0, 0),
+                    AnchorPoint = Vector2New(0, 0.5),
+                    Position = UDim2New(0, 0, 0.5, 0),
+                    Size = UDim2New(0, 3, 0, 0),
+                    ZIndex = 3,
+                    BorderSizePixel = 0,
+                    BackgroundColor3 = FromRGB(61, 220, 132)
+                })  Items["Marker"]:AddToTheme({BackgroundColor3 = "Accent"})
+
+                Instances:Create("UICorner", {
+                    Parent = Items["Marker"].Instance,
+                    Name = "\0",
+                    CornerRadius = UDimNew(0, 2)
+                })
                 
                 Items["Icon"] = Instances:Create("ImageLabel", {
                     Parent = Items["Inactive"].Instance,
@@ -4712,6 +5191,9 @@ local Library do
                     AnchorPoint = Vector2New(0, 0.5),
                     Image = "rbxassetid://"..Page.Icon,
                     BackgroundTransparency = 1,
+                    -- dimmed until the page is the one you are on; Turn() lifts both this and
+                    -- the label, so an inactive row is quiet rather than shouting alongside it
+                    ImageTransparency = 0.35,
                     Position = UDim2New(0, 16, 0.5, 0),
                     ZIndex = 2,
                     BorderSizePixel = 0,
@@ -4737,6 +5219,7 @@ local Library do
                     AnchorPoint = Vector2New(0, 0.5),
                     Size = UDim2New(0, 0, 0, 15),
                     BackgroundTransparency = 1,
+                    TextTransparency = 0.4,
                     Position = UDim2New(0, 45, 0.5, 0),
                     BorderSizePixel = 0,
                     ZIndex = 2,
@@ -4824,6 +5307,15 @@ local Library do
                 local SlideTween
                 if Page.Active then
                     Items["Inactive"]:Tween(nil, {BackgroundTransparency = 0.25})
+                    Items["Marker"]:Tween(TweenInfo.new(0.35, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {Size = UDim2New(0, 3, 0, 22)})
+                    Items["Text"]:Tween(nil, {TextTransparency = 0})
+                    Items["Icon"]:Tween(nil, {ImageTransparency = 0})
+
+                    -- the header's prompt is the only place the page is written out in full
+                    if Page.Window.SetPrompt then
+                        Page.Window:SetPrompt(Page.Name)
+                    end
+
                     SlideTween = Items["Page"]:Tween(TweenInfo.new(0.5, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {Position = UDim2New(0, 0, 0, 0)})
 
                     for Index, Value in Page.Sections do 
@@ -4835,6 +5327,9 @@ local Library do
                     end
                 else
                     Items["Inactive"]:Tween(nil, {BackgroundTransparency = 1})
+                    Items["Marker"]:Tween(TweenInfo.new(0.25, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {Size = UDim2New(0, 3, 0, 0)})
+                    Items["Text"]:Tween(nil, {TextTransparency = 0.4})
+                    Items["Icon"]:Tween(nil, {ImageTransparency = 0.35})
                     SlideTween = Items["Page"]:Tween(TweenInfo.new(0.5, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {Position = UDim2New(0, 0, 0, 60)})
                 end
 
@@ -4862,8 +5357,33 @@ local Library do
                 end
             end
 
+            -- Hover is feedback rather than decoration: without it the sidebar gives no sign a
+            -- row can be clicked until it has already been clicked, which on a dark theme with
+            -- eight identical rows is the difference between a menu and a list.
+            local HoverInfo = TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+
+            Items["Inactive"]:OnHover(function()
+                if Page.Active then
+                    return
+                end
+
+                Items["Inactive"]:Tween(HoverInfo, {BackgroundTransparency = 0.82})
+                Items["Text"]:Tween(HoverInfo, {TextTransparency = 0.12})
+                Items["Icon"]:Tween(HoverInfo, {ImageTransparency = 0.1})
+            end)
+
+            Items["Inactive"]:OnHoverLeave(function()
+                if Page.Active then
+                    return
+                end
+
+                Items["Inactive"]:Tween(HoverInfo, {BackgroundTransparency = 1})
+                Items["Text"]:Tween(HoverInfo, {TextTransparency = 0.4})
+                Items["Icon"]:Tween(HoverInfo, {ImageTransparency = 0.35})
+            end)
+
             Items["Inactive"]:Connect("MouseButton1Down", function()
-                for Index, Value in Page.Window.Pages do 
+                for Index, Value in Page.Window.Pages do
                     if Value == Page and Page.Active then
                         return
                     end
@@ -5468,17 +5988,20 @@ local Library do
                     BackgroundTransparency = 0.6499999761581421,
                     ClipsDescendants = true,
                     BorderSizePixel = 0,
-                    Size = UDim2New(1, 0, 0, 45),
+                    Size = UDim2New(1, 0, 0, 40),
                     ZIndex = 2,
                     AutomaticSize = Enum.AutomaticSize.Y,
                     BackgroundColor3 = FromRGB(29, 28, 32)
                 })  Items["Section"]:AddToTheme({BackgroundColor3 = "Section Background 2"})
-                
+
+                -- 46 rather than 55. Nine pixels a pane does not sound like much until you
+                -- count them: a column runs four or five panes, so this is most of a control
+                -- row given back per column, and a pane title never needed that much air.
                 Items["Top"] = Instances:Create("Frame", {
                     Parent = Items["Section"].Instance,
                     Name = "\0",
                     BackgroundTransparency = 0.6499999761581421,
-                    Size = UDim2New(1, 0, 0, 55),
+                    Size = UDim2New(1, 0, 0, 46),
                     BorderColor3 = FromRGB(0, 0, 0),
                     ZIndex = 2,
                     BorderSizePixel = 0,
@@ -5496,17 +6019,38 @@ local Library do
                     BorderSizePixel = 0,
                     BackgroundColor3 = FromRGB(26, 26, 30)
                 })  Items["TopBackground"]:AddToTheme({BackgroundColor3 = "Section Top"})
-                
+
+                -- The pane marker. tmux marks its active pane with a coloured edge rather than
+                -- a border around the whole thing, and one bar per title bar is what turns a
+                -- column of cards into a column of panes.
+                Items["Marker"] = Instances:Create("Frame", {
+                    Parent = Items["TopBackground"].Instance,
+                    Name = "\0",
+                    BorderColor3 = FromRGB(0, 0, 0),
+                    AnchorPoint = Vector2New(0, 0.5),
+                    Position = UDim2New(0, 8, 0.5, 0),
+                    Size = UDim2New(0, 3, 0, 18),
+                    ZIndex = 2,
+                    BorderSizePixel = 0,
+                    BackgroundColor3 = FromRGB(61, 220, 132)
+                })  Items["Marker"]:AddToTheme({BackgroundColor3 = "Accent"})
+
+                Instances:Create("UICorner", {
+                    Parent = Items["Marker"].Instance,
+                    Name = "\0",
+                    CornerRadius = UDimNew(0, 2)
+                })
+
                 Items["Icon"] = Instances:Create("ImageLabel", {
                     Parent = Items["TopBackground"].Instance,
                     Name = "\0",
                     ImageColor3 = FromRGB(255, 255, 255),
                     BorderColor3 = FromRGB(0, 0, 0),
-                    Size = UDim2New(0, 21, 0, 20),
+                    Size = UDim2New(0, 17, 0, 17),
                     AnchorPoint = Vector2New(0, 0.5),
                     Image = "rbxassetid://"..Section.Icon,
                     BackgroundTransparency = 1,
-                    Position = UDim2New(0, 15, 0.5, 0),
+                    Position = UDim2New(0, 19, 0.5, 0),
                     ZIndex = 2,
                     BorderSizePixel = 0,
                     BackgroundColor3 = FromRGB(255, 255, 255)
@@ -5528,13 +6072,13 @@ local Library do
                     BorderColor3 = FromRGB(0, 0, 0),
                     Text = Section.Description,
                     AutomaticSize = Enum.AutomaticSize.X,
-                    Size = UDim2New(0, 0, 0, 15),
+                    Size = UDim2New(0, 0, 0, 13),
                     BackgroundTransparency = 1,
-                    Position = UDim2New(0, 50, 0, 28),
+                    Position = UDim2New(0, 44, 0, 24),
                     BorderSizePixel = 0,
-                    TextTransparency = 0.4,
+                    TextTransparency = 0.5,
                     ZIndex = 2,
-                    TextSize = 15,
+                    TextSize = 11,
                     BackgroundColor3 = FromRGB(255, 255, 255)
                 })  Items["Description"]:AddToTheme({TextColor3 = "Text"})
                     Items["Description"]:AddToLocale({Text = Section.Description})
@@ -5555,11 +6099,11 @@ local Library do
                     AutomaticSize = Enum.AutomaticSize.X,
                     Size = UDim2New(0, 0, 0, 15),
                     BackgroundTransparency = 1,
-                    -- Сохранил твою логику центрирования из прошлого вопроса
-                    Position = (Section.Description == "") and UDim2New(0, 50, 0, 19) or UDim2New(0, 50, 0, 10),
+                    -- centred alone, lifted when a description sits under it
+                    Position = (Section.Description == "") and UDim2New(0, 44, 0, 15) or UDim2New(0, 44, 0, 8),
                     BorderSizePixel = 0,
                     ZIndex = 2,
-                    TextSize = 15,
+                    TextSize = 14,
                     BackgroundColor3 = FromRGB(255, 255, 255)
                 })  Items["Title"]:AddToTheme({TextColor3 = "Text"})
                     Items["Title"]:AddToLocale({Text = Section.Name})
@@ -5740,8 +6284,8 @@ local Library do
                     Name = "\0",
                     BorderColor3 = FromRGB(0, 0, 0),
                     BackgroundTransparency = 0.6499999761581421,
-                    Position = UDim2New(0, 1, 0, 55),
-                    Size = UDim2New(1, -2, 1, -56),
+                    Position = UDim2New(0, 1, 0, 46),
+                    Size = UDim2New(1, -2, 1, -47),
                     ZIndex = 2,
                     BorderSizePixel = 0,
                     BackgroundColor3 = FromRGB(24, 22, 25)

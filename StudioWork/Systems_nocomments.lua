@@ -3720,89 +3720,97 @@ task.spawn(function()
 		end
 	end
 
-	local shouldShowTopbarButton = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
-
-	if shouldShowTopbarButton then
-		local iconModule
-		local gs = RS:FindFirstChild("GameSettings")
-		if gs and gs:FindFirstChild("Modules") then
-			iconModule = gs.Modules:FindFirstChild("Icon")
+	-- Hide default Roblox ShiftLock button / disable default mouse lock UI
+	pcall(function()
+		local PlayerScripts = LocalPlayer:WaitForChild("PlayerScripts", 10)
+		local PlayerModule = PlayerScripts and PlayerScripts:WaitForChild("PlayerModule", 10)
+		local CameraModule = PlayerModule and PlayerModule:WaitForChild("CameraModule", 10)
+		local MouseLockController = CameraModule and CameraModule:WaitForChild("MouseLockController", 10)
+		if MouseLockController then
+			local boundKeys = MouseLockController:FindFirstChild("BoundKeys")
+			if boundKeys then boundKeys.Value = "" end
 		end
-		if not iconModule and RS:FindFirstChild("Modules") then
-			iconModule = RS.Modules:FindFirstChild("TopbarPlus") or RS.Modules:FindFirstChild("Icon")
+	end)
+
+	local iconModule
+	local gs = RS:FindFirstChild("GameSettings")
+	if gs and gs:FindFirstChild("Modules") then
+		iconModule = gs.Modules:FindFirstChild("Icon")
+	end
+	if not iconModule and RS:FindFirstChild("Modules") then
+		iconModule = RS.Modules:FindFirstChild("TopbarPlus") or RS.Modules:FindFirstChild("Icon")
+	end
+
+	local okIcon, Icon
+	if iconModule then
+		okIcon, Icon = pcall(require, iconModule)
+	end
+
+	if okIcon and typeof(Icon) == "table" then
+		local icon = Icon.new()
+		icon:setName("ShiftLock")
+		icon:setImage("rbxassetid://106884084091476")
+		icon:setImageScale(0.6)
+		icon:align("Right")
+		icon:autoDeselect(false)
+
+		local lastToggle = 0
+		local function toggle()
+			local now = os.clock()
+			if now - lastToggle < 0.25 then return end
+			lastToggle = now
+			applyMobileLock(not mobileEnabled)
 		end
 
-		local okIcon, Icon
-		if iconModule then
-			okIcon, Icon = pcall(require, iconModule)
-		end
+		icon:bindEvent("selected", toggle)
+		icon:bindEvent("deselected", toggle)
 
-		if okIcon and typeof(Icon) == "table" then
-			local icon = Icon.new()
-			icon:setName("ShiftLock")
-			icon:setImage("rbxassetid://106884084091476")
-			icon:setImageScale(0.6)
-			icon:align("Right")
-			icon:autoDeselect(false)
-
-			local lastToggle = 0
-			local function toggle()
-				local now = os.clock()
-				if now - lastToggle < 0.25 then return end
-				lastToggle = now
-				applyMobileLock(not mobileEnabled)
-			end
-
-			icon:bindEvent("selected", toggle)
-			icon:bindEvent("deselected", toggle)
-
-			task.spawn(function()
-				local region
-				for _ = 1, 60 do
-					for _, gname in ipairs({"TopbarStandard", "TopbarCentered"}) do
-						local g = PlayerGui:FindFirstChild(gname)
-						local holders = g and g:FindFirstChild("Holders")
-						if holders then
-							for _, side in ipairs(holders:GetChildren()) do
-								if side:IsA("GuiObject") then
-									local w = side:FindFirstChild("ShiftLock")
-									if w then region = w:FindFirstChild("ClickRegion", true) end
-								end
+		task.spawn(function()
+			local region
+			for _ = 1, 60 do
+				for _, gname in ipairs({"TopbarStandard", "TopbarCentered"}) do
+					local g = PlayerGui:FindFirstChild(gname)
+					local holders = g and g:FindFirstChild("Holders")
+					if holders then
+						for _, side in ipairs(holders:GetChildren()) do
+							if side:IsA("GuiObject") then
+								local w = side:FindFirstChild("ShiftLock")
+								if w then region = w:FindFirstChild("ClickRegion", true) end
 							end
 						end
 					end
-					if region then break end
-					task.wait(0.25)
 				end
-				if region and region:IsA("GuiButton") then
-					region.MouseButton1Click:Connect(toggle)
-				end
-			end)
+				if region then break end
+				task.wait(0.25)
+			end
+			if region and region:IsA("GuiButton") then
+				region.MouseButton1Click:Connect(toggle)
+			end
+		end)
 
-			RunService:BindToRenderStep("MobileShiftLockStep", Enum.RenderPriority.Camera.Value + 1, function()
-				if not mobileEnabled then return end
-				local char = LocalPlayer.Character
-				local humanoid = char and char:FindFirstChildOfClass("Humanoid")
-				if not humanoid or humanoid.Health <= 0 then return end
-				local root = char:FindFirstChild("HumanoidRootPart")
-				if not root then return end
+		RunService:BindToRenderStep("MobileShiftLockStep", Enum.RenderPriority.Camera.Value + 1, function()
+			if not mobileEnabled then return end
+			local char = LocalPlayer.Character
+			local humanoid = char and char:FindFirstChildOfClass("Humanoid")
+			if not humanoid or humanoid.Health <= 0 then return end
+			local root = char:FindFirstChild("HumanoidRootPart")
+			if not root then return end
 
-				if UserInputService.MouseBehavior ~= Enum.MouseBehavior.LockCenter then
-					UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
-				end
+			if UserInputService.MouseBehavior ~= Enum.MouseBehavior.LockCenter then
+				UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
+			end
 
-				if humanoid.CameraOffset ~= Vector3.new(1.75, 0, 0) then
-					humanoid.CameraOffset = Vector3.new(1.75, 0, 0)
-				end
+			if humanoid.CameraOffset ~= Vector3.new(1.75, 0, 0) then
+				humanoid.CameraOffset = Vector3.new(1.75, 0, 0)
+			end
 
-				local look = workspace.CurrentCamera.CFrame.LookVector
-				local flat = Vector3.new(look.X, 0, look.Z)
-				if flat.Magnitude > 0.001 then
-					local targetCFrame = CFrame.lookAt(root.Position, root.Position + flat.Unit)
-					root.CFrame = root.CFrame:Lerp(targetCFrame, 0.5)
-				end
-			end)
-		end
+			local look = workspace.CurrentCamera.CFrame.LookVector
+			local flat = Vector3.new(look.X, 0, look.Z)
+			if flat.Magnitude > 0.001 then
+				local targetCFrame = CFrame.lookAt(root.Position, root.Position + flat.Unit)
+				root.CFrame = targetCFrame
+			end
+		end)
 	end
 
 	RunService.RenderStepped:Connect(function()

@@ -717,6 +717,33 @@ do
         ElevatorCatalog = function(Value)
             return type(rawget(Value, "elevatorCost")) == "function"
         end,
+
+        -- Two Charm atoms and nothing else: order is what the player told the chicken to do,
+        -- where is where the bird actually is this frame. The rebirth screen gates its confirm
+        -- button on exactly this pair, and so does the server, so reading it is strictly ahead
+        -- of the ovState attribute the plot carries.
+        ChickenMode = function(Value)
+            if type(rawget(Value, "order")) ~= "function" then return false end
+            if type(rawget(Value, "where")) ~= "function" then return false end
+
+            local Keys = 0
+
+            for _ in pairs(Value) do
+                Keys = Keys + 1
+
+                if Keys > 2 then return false end
+            end
+
+            return Keys == 2
+        end,
+
+        -- the HUD's window flags. Opening one closes the rest, which is why rebirth() is the
+        -- only supported way to put the Rebirth screen on screen.
+        WindowState = function(Value)
+            return type(rawget(Value, "EXCLUSIVE")) == "table"
+                and type(rawget(Value, "rebirth")) == "function"
+                and type(rawget(Value, "busy")) == "function"
+        end,
     }
 
     local Required = { "DataService", "GameConfig", "Catalog" }
@@ -897,6 +924,19 @@ local RebirthMilestones = ViewOrStub("RebirthMilestones", {
 local RosterCap = ViewOrStub("RosterCap", {
     PASS = "rosterSlots",
     of = function() return math.huge end
+})
+
+-- nil out of the stub, not a made-up state: the caller falls back to the plot attribute rather
+-- than acting on a "corral" that was never read from anything.
+local ChickenMode = ViewOrStub("ChickenMode", {
+    order = function() return nil end,
+    where = function() return nil end
+})
+
+local WindowState = ViewOrStub("WindowState", {
+    EXCLUSIVE = { },
+    rebirth = function() return false end,
+    busy = function() return false end
 })
 
 local FusionRules = ViewOrStub("FusionRules", {
@@ -3871,20 +3911,71 @@ local RebirthSection = ProgressPage:Section({
 -- two hundred active locals per function.
 
 do
-local RebirthRecallAt = 0
+local RebirthOrderAt = 0
 local RebirthTriedAt = 0
-local RebirthOrderedAt = 0
+local RebirthRefusals = 0
 
-local RebirthWalkHome = 6
+-- Rebirth used to be driven off Ask(Remotes.defs.Rebirth), and that is what made it slow: Ask
+-- backs a failed name off ten seconds and doubles to two minutes, so one refusal -- the plot
+-- attribute reading corral a beat before the server agreed -- parked the whole feature. On top
+-- of that sat a fixed six second wait every time the order went out and a flat ten second
+-- retry, so a rebirth that was ready could sit for minutes before the call even went out.
+--
+-- What went in for the fix was worse than what it replaced: opening the Rebirth screen,
+-- selecting its confirm button and sending Return through VirtualInputManager to fire it
+-- without a real key on a real keyboard behind it. That got the account kicked mid-test
+-- ("removed for cheating"), so this stays a plain server call -- the same
+-- Remotes.invoke(Remotes.defs.Rebirth) the button itself makes, nothing simulated in front of
+-- it, no window opened, no selection touched.
+--
+-- The speed comes from tighter polling instead: the loop already runs every 0.5s, the retry
+-- gap after a send is 1.5s instead of ten, and the order-home wait is however long the walk
+-- actually takes rather than a flat six -- both read off the game's own state (ChickenMode,
+-- ovState) rather than guessed at.
+local RebirthRetry = 1.5
+local RebirthRetryCap = 20
+local RebirthOrderCooldown = 2
 
-local function RebirthRecall()
-    if os.clock() - RebirthRecallAt < RebirthWalkHome then return end
+-- A press that goes through costs nothing to repeat, but a press the server REFUSES is a
+-- rejected call every retry, and a rejected call every 1.5s is the shape of a thing worth
+-- backing off from on its own. So the gap doubles per refusal up to twenty seconds and drops
+-- back to 1.5 the moment a rebirth actually lands.
+local function RebirthGap()
+    if RebirthRefusals < 1 then return RebirthRetry end
 
-    RebirthRecallAt = os.clock()
+    return math.min(RebirthRetryCap, RebirthRetry * 2 ^ RebirthRefusals)
+end
 
-    if Remotes.fire(Remotes.defs.SetChickenOrder, "coop") then
-        RebirthOrderedAt = os.clock()
-    end
+local function RebirthCount()
+    local Rebirth = GetData("rebirth")
+
+    return type(Rebirth) == "table" and (Rebirth.count or 0) or 0
+end
+
+-- ChickenMode is the same pair the rebirth screen itself watches (order() is what was asked
+-- for, where() is where the bird is this frame) -- reading it is a plain table call, nothing
+-- sent anywhere and nothing the server or an anti-cheat can see. Falls back to the plot's own
+-- ovState attribute when the atoms were not found.
+local function ChickenOrder()
+    local Ok, Order = pcall(ChickenMode.order)
+
+    if Ok and type(Order) == "string" then return Order end
+end
+
+local function ChickenWhere(Body)
+    local Ok, Where = pcall(ChickenMode.where)
+
+    if Ok and type(Where) == "string" then return Where end
+
+    return ChickenStateOf(Body)
+end
+
+local function OrderHome()
+    if os.clock() - RebirthOrderAt < RebirthOrderCooldown then return end
+
+    RebirthOrderAt = os.clock()
+
+    Remotes.fire(Remotes.defs.SetChickenOrder, "coop")
 end
 
 RebirthSection:Toggle({
@@ -3897,8 +3988,14 @@ RebirthSection:Toggle({
 
         if not Value then return end
 
-        Loop("AutoRebirth", 2, function()
-            if not RebirthReady() then return end
+        Loop("AutoRebirth", 0.5, function()
+            if not RebirthReady() then
+                -- readiness gone is either the rebirth that just landed or a requirement that
+                -- moved; neither is the refusal the gap was widening for
+                RebirthRefusals = 0
+
+                return
+            end
 
             if not ChickenClaim("rebirth") then return end
 
@@ -3909,45 +4006,58 @@ RebirthSection:Toggle({
             local Arena = MyArena()
 
             if Arena and Arena:GetAttribute("TowerActive") == true then
-                if os.clock() - RebirthRecallAt >= RebirthWalkHome then
-                    RebirthRecallAt = os.clock()
+                if os.clock() - RebirthOrderAt >= RebirthOrderCooldown then
+                    RebirthOrderAt = os.clock()
 
-                    if Remotes.fire(Remotes.defs.SetChickenOrder, "coop") then
-                        RebirthOrderedAt = os.clock()
-                    end
-
+                    Remotes.fire(Remotes.defs.SetChickenOrder, "coop")
                     Remotes.invoke(Remotes.defs.TowerSurrender)
                 end
 
                 return
             end
 
-            local State = ChickenStateOf(Body)
+            local Order = ChickenOrder()
 
-            if State ~= "corral" then
-                RebirthRecall()
-
-                return
-            end
-
-            if RebirthOrderedAt == 0 then
-                RebirthRecall()
+            if Order ~= nil and Order ~= "coop" then
+                OrderHome()
 
                 return
             end
 
-            if os.clock() - RebirthTriedAt < 10 then return end
+            -- Order comes back nil when the atoms were not found -- then the order goes out
+            -- blind on its cooldown and the plot attribute is all there is to read the arrival
+            -- off. With the atoms in hand the order is already coop here and only the walk,
+            -- polled at the loop's own 0.5s rather than waited on with a flat timer, is left.
+            if ChickenWhere(Body) ~= "corral" then
+                if Order == nil then
+                    OrderHome()
+                end
+
+                return
+            end
+
+            if os.clock() - RebirthTriedAt < RebirthGap() then return end
 
             RebirthTriedAt = os.clock()
 
-            local Reply = Ask(Remotes.defs.Rebirth)
+            local Before = RebirthCount()
+            local Reply = Remotes.invoke(Remotes.defs.Rebirth)
 
             if type(Reply) == "table" and Reply.ok then
-                RebirthOrderedAt = 0
-                RebirthRecallAt = 0
-            elseif type(Reply) == "table" and Reply.error then
-                RebirthOrderedAt = 0
+                RebirthRefusals = 0
+
+                return
             end
+
+            -- the count is replicated and can lag a reply that came back ok late, so it is
+            -- checked either way before counting this as a refusal
+            if RebirthCount() > Before then
+                RebirthRefusals = 0
+
+                return
+            end
+
+            RebirthRefusals = RebirthRefusals + 1
         end)
     end
 })
