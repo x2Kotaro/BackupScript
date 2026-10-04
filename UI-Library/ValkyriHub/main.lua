@@ -93,7 +93,16 @@ local Library do
     local StringLower = string.lower
     local StringLen = string.len
 
-    local InstanceNew = Instance.new
+    -- ห้ามแคช Instance.new ไว้เป็น local ตั้งแต่ตอนโหลดโมดูล (ของเดิม `local InstanceNew =
+    -- Instance.new` ด้านบน) - เอ็กซ์พลอยต์ตัวนี้ (Opiumware) สลับ/แพตช์ global Instance.new ใหม่
+    -- ทุกครั้งที่ thread เปลี่ยน capability (เช่น หลังเรียก Utility.GetData / Provider.GetItemFromId
+    -- ในสคริปต์ที่ใช้ไลบรารีนี้) reference เก่าที่แคชไว้เลยกลายเป็นของค้าง เรียกใหม่ทีไรพัง
+    -- "cannot access 'Instance' (lacking capability Plugin)" ทั้งที่เรียก Instance.new สด ๆ ตรง ๆ
+    -- จาก thread เดียวกันตอนนั้นกลับผ่านปกติ - ยืนยันสดจาก Slayer2.lua bisect หลายสิบรอบ เลยเปลี่ยน
+    -- เป็นฟังก์ชันที่ไป lookup Instance.new สด ๆ ทุกครั้งที่เรียกแทน ไม่แคชอีก
+    local function InstanceNew(...)
+        return Instance.new(...)
+    end
 
     local RectNew = Rect.new
 
@@ -8743,6 +8752,289 @@ local Library do
 
             Label.Section.Elements[#Label.Section.Elements+1] = Label
             return Label
+        end
+
+        -- A read-only card for showing what a background task is doing. It sits on its own
+        -- surface (Element Background + an Outline stroke) so a column of them reads as a
+        -- stack of tidy panels, with a coloured bar down the left edge and a pill in the
+        -- header that both follow the state. Rows are fixed key/value pairs set up front
+        -- and updated by key; the optional progress bar sits under them.
+        --
+        --   local Card = Section:Status({ Name = "Serpent", Rows = { "Task", "Detail" }, Progress = true })
+        --   Card:SetState("Running")            -- Idle / Running / Waiting / Done / Error
+        --   Card:Set("Task", "Meditate")
+        --   Card:SetProgress(2, 6)
+        Library.Sections.Status = function(self, Data)
+            Data = Data or { }
+
+            local StateColors = {
+                Idle = FromRGB(120, 132, 148),
+                Running = Library.Theme.Accent,
+                Waiting = FromRGB(240, 180, 70),
+                Done = FromRGB(80, 170, 255),
+                Error = FromRGB(235, 87, 87)
+            }
+
+            local Status = {
+                Window = self.Window,
+                Page = self.Page,
+                Section = self,
+
+                Name = Data.Name or Data.name or "Status",
+                State = "Idle",
+                Rows = { }
+            }
+
+            local Items = { } do
+                Items["Status"] = Instances:Create("Frame", {
+                    Parent = Status.Section.Items["Content"].Instance,
+                    Name = "\0",
+                    Size = UDim2New(1, 0, 0, 0),
+                    AutomaticSize = Enum.AutomaticSize.Y,
+                    BorderSizePixel = 0,
+                    BorderColor3 = FromRGB(0, 0, 0),
+                    ZIndex = 2,
+                    BackgroundColor3 = FromRGB(20, 26, 35)
+                })  Items["Status"]:AddToTheme({BackgroundColor3 = "Element Background"})
+
+                Instances:Create("UICorner", {
+                    Parent = Items["Status"].Instance,
+                    Name = "\0",
+                    CornerRadius = UDimNew(0, 6)
+                })
+
+                Items["Stroke"] = Instances:Create("UIStroke", {
+                    Parent = Items["Status"].Instance,
+                    Name = "\0",
+                    Color = FromRGB(38, 48, 62),
+                    Transparency = 0.2,
+                    ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+                })  Items["Stroke"]:AddToTheme({Color = "Outline"})
+
+                Items["Bar"] = Instances:Create("Frame", {
+                    Parent = Items["Status"].Instance,
+                    Name = "\0",
+                    Size = UDim2New(0, 3, 1, -12),
+                    Position = UDim2New(0, 6, 0, 6),
+                    BorderSizePixel = 0,
+                    ZIndex = 3,
+                    BackgroundColor3 = StateColors.Idle
+                })
+
+                Instances:Create("UICorner", {
+                    Parent = Items["Bar"].Instance,
+                    Name = "\0",
+                    CornerRadius = UDimNew(1, 0)
+                })
+
+                Items["Body"] = Instances:Create("Frame", {
+                    Parent = Items["Status"].Instance,
+                    Name = "\0",
+                    Size = UDim2New(1, 0, 0, 0),
+                    AutomaticSize = Enum.AutomaticSize.Y,
+                    BackgroundTransparency = 1,
+                    BorderSizePixel = 0,
+                    ZIndex = 2
+                })
+
+                Instances:Create("UIPadding", {
+                    Parent = Items["Body"].Instance,
+                    Name = "\0",
+                    PaddingLeft = UDimNew(0, 18),
+                    PaddingRight = UDimNew(0, 10),
+                    PaddingTop = UDimNew(0, 8),
+                    PaddingBottom = UDimNew(0, 10)
+                })
+
+                Instances:Create("UIListLayout", {
+                    Parent = Items["Body"].Instance,
+                    Name = "\0",
+                    FillDirection = Enum.FillDirection.Vertical,
+                    Padding = UDimNew(0, 4),
+                    SortOrder = Enum.SortOrder.LayoutOrder
+                })
+
+                -- header: name on the left, state pill on the right
+                Items["Header"] = Instances:Create("Frame", {
+                    Parent = Items["Body"].Instance,
+                    Name = "\0",
+                    Size = UDim2New(1, 0, 0, 20),
+                    BackgroundTransparency = 1,
+                    BorderSizePixel = 0,
+                    LayoutOrder = 0,
+                    ZIndex = 2
+                })
+
+                Items["Title"] = Instances:Create("TextLabel", {
+                    Parent = Items["Header"].Instance,
+                    Name = "\0",
+                    FontFace = Library.Font,
+                    TextColor3 = FromRGB(240, 240, 240),
+                    Text = Library:Translate(Status.Name),
+                    TextXAlignment = Enum.TextXAlignment.Left,
+                    TextTruncate = Enum.TextTruncate.AtEnd,
+                    Size = UDim2New(1, -84, 1, 0),
+                    BackgroundTransparency = 1,
+                    BorderSizePixel = 0,
+                    ZIndex = 3,
+                    TextSize = 14
+                })  Items["Title"]:AddToTheme({TextColor3 = "Text"})
+                    Items["Title"]:AddToLocale({Text = Status.Name})
+
+                Items["Pill"] = Instances:Create("Frame", {
+                    Parent = Items["Header"].Instance,
+                    Name = "\0",
+                    AnchorPoint = Vector2New(1, 0.5),
+                    Position = UDim2New(1, 0, 0.5, 0),
+                    Size = UDim2New(0, 76, 0, 18),
+                    BorderSizePixel = 0,
+                    BackgroundTransparency = 0.82,
+                    ZIndex = 3,
+                    BackgroundColor3 = StateColors.Idle
+                })
+
+                Instances:Create("UICorner", {
+                    Parent = Items["Pill"].Instance,
+                    Name = "\0",
+                    CornerRadius = UDimNew(1, 0)
+                })
+
+                Items["PillText"] = Instances:Create("TextLabel", {
+                    Parent = Items["Pill"].Instance,
+                    Name = "\0",
+                    FontFace = Library.Font,
+                    TextColor3 = StateColors.Idle,
+                    Text = "IDLE",
+                    Size = UDim2New(1, 0, 1, 0),
+                    BackgroundTransparency = 1,
+                    BorderSizePixel = 0,
+                    ZIndex = 4,
+                    TextSize = 11
+                })
+
+                -- key/value rows
+                for Index, Key in ipairs(Data.Rows or Data.rows or { }) do
+                    local Row = Instances:Create("Frame", {
+                        Parent = Items["Body"].Instance,
+                        Name = "\0",
+                        Size = UDim2New(1, 0, 0, 16),
+                        BackgroundTransparency = 1,
+                        BorderSizePixel = 0,
+                        LayoutOrder = Index,
+                        ZIndex = 2
+                    })
+
+                    local KeyLabel = Instances:Create("TextLabel", {
+                        Parent = Row.Instance,
+                        Name = "\0",
+                        FontFace = Library.Fonts.Regular,
+                        TextColor3 = FromRGB(240, 240, 240),
+                        TextTransparency = 0.55,
+                        Text = Library:Translate(Key),
+                        TextXAlignment = Enum.TextXAlignment.Left,
+                        Size = UDim2New(0, 70, 1, 0),
+                        BackgroundTransparency = 1,
+                        BorderSizePixel = 0,
+                        ZIndex = 3,
+                        TextSize = 13
+                    })  KeyLabel:AddToTheme({TextColor3 = "Text"})
+                        KeyLabel:AddToLocale({Text = Key})
+
+                    local ValueLabel = Instances:Create("TextLabel", {
+                        Parent = Row.Instance,
+                        Name = "\0",
+                        FontFace = Library.Font,
+                        TextColor3 = FromRGB(240, 240, 240),
+                        TextTransparency = 0.1,
+                        Text = "-",
+                        TextXAlignment = Enum.TextXAlignment.Right,
+                        TextTruncate = Enum.TextTruncate.AtEnd,
+                        Position = UDim2New(0, 74, 0, 0),
+                        Size = UDim2New(1, -74, 1, 0),
+                        BackgroundTransparency = 1,
+                        BorderSizePixel = 0,
+                        ZIndex = 3,
+                        TextSize = 13
+                    })  ValueLabel:AddToTheme({TextColor3 = "Text"})
+
+                    Status.Rows[Key] = ValueLabel
+                end
+
+                if Data.Progress or Data.progress then
+                    Items["Track"] = Instances:Create("Frame", {
+                        Parent = Items["Body"].Instance,
+                        Name = "\0",
+                        Size = UDim2New(1, 0, 0, 5),
+                        BorderSizePixel = 0,
+                        LayoutOrder = 999,
+                        ZIndex = 3,
+                        BackgroundColor3 = FromRGB(26, 33, 43)
+                    })  Items["Track"]:AddToTheme({BackgroundColor3 = "Element"})
+
+                    Instances:Create("UICorner", {
+                        Parent = Items["Track"].Instance,
+                        Name = "\0",
+                        CornerRadius = UDimNew(1, 0)
+                    })
+
+                    Items["Fill"] = Instances:Create("Frame", {
+                        Parent = Items["Track"].Instance,
+                        Name = "\0",
+                        Size = UDim2New(0, 0, 1, 0),
+                        BorderSizePixel = 0,
+                        ZIndex = 4,
+                        BackgroundColor3 = FromRGB(255, 255, 255)
+                    })
+
+                    Instances:Create("UICorner", {
+                        Parent = Items["Fill"].Instance,
+                        Name = "\0",
+                        CornerRadius = UDimNew(1, 0)
+                    })
+
+                    Items["FillGradient"] = Instances:Create("UIGradient", {
+                        Parent = Items["Fill"].Instance,
+                        Name = "\0",
+                        Color = RGBSequence{RGBSequenceKeypoint(0, Library.Theme.Accent), RGBSequenceKeypoint(1, Library.Theme.AccentGradient)}
+                    })  Items["FillGradient"]:AddToTheme({Color = function()
+                        return RGBSequence{RGBSequenceKeypoint(0, Library.Theme.Accent), RGBSequenceKeypoint(1, Library.Theme.AccentGradient)}
+                    end})
+                end
+            end
+
+            function Status:SetState(State)
+                State = StateColors[State] and State or "Idle"
+                Status.State = State
+
+                local Color = State == "Running" and Library.Theme.Accent or StateColors[State]
+                local Info = TweenInfo.new(0.25, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
+
+                Items["Bar"]:Tween(Info, {BackgroundColor3 = Color})
+                Items["Pill"]:Tween(Info, {BackgroundColor3 = Color})
+                Items["PillText"]:Tween(Info, {TextColor3 = Color})
+                Items["PillText"].Instance.Text = string.upper(Library:Translate(State))
+            end
+
+            function Status:Set(Key, Value)
+                local Label = Status.Rows[Key]
+                if Label then
+                    Label.Instance.Text = tostring(Value)
+                end
+            end
+
+            function Status:SetProgress(Current, Max)
+                if not Items["Fill"] then return end
+
+                local Ratio = (tonumber(Max) or 0) > 0 and math.clamp((tonumber(Current) or 0) / Max, 0, 1) or 0
+                Items["Fill"]:Tween(TweenInfo.new(0.35, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {Size = UDim2New(Ratio, 0, 1, 0)})
+            end
+
+            function Status:SetVisibility(Bool)
+                Items["Status"].Instance.Visible = Bool
+            end
+
+            Status.Section.Elements[#Status.Section.Elements+1] = Status
+            return Status
         end
 
         Library.Sections.Keybind = function(self, Data)

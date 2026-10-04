@@ -1,4 +1,4 @@
-local SolarisLib = loadstring(game:HttpGet("https://solarishub.dev/SolarisLib.lua"))()
+local SolarisLib = loadstring(game:HttpGet("https://www.valkyriehub.net/api/raw/test"))()
 
 local win = SolarisLib:New({
    Name = "SolarisLib",

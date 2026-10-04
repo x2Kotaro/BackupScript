@@ -25,6 +25,19 @@ caveman terseness.
 | `dex_exec` | Probe state, enumerate remotes, read attributes/values. Read-only queries only during audit. |
 | `dex_console` | Catch anti-cheat warnings/kick reasons printed after the fact. |
 
+For deeper forensics, use the tested snippets in `.claude/skills/dex-mechanics/references/probes.md`:
+§3 (`filtergc` by constant finds every closure that reads/writes a value, `getconstants`/`getupvalues`
+fingerprint a validator), §5 (trace who calls a remote wrapper and with which args), §4 (timeline of
+state changes around a save or kick). Shared ModuleScripts often contain the server's own
+checks (`RunService:IsServer()` branches). Decompile them to read the validation rather than guessing it.
+
+## Token budget
+
+Dex output lands in context verbatim. `dex_tree` depth ≤ 2 on specific paths; decompile big
+modules via `dex_exec` + `decompile()` and return only `find`/`gmatch` matches (≤ 1.5 KB), not the
+whole source; `dex_spy read` with a `limit` and dedupe by remote name inside the game; write bulk
+findings straight into the report file instead of echoing them in chat.
+
 ## Phase 1 — map the anti-cheat
 
 1. `dex_status` to confirm the target.

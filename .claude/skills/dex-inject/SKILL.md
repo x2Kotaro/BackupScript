@@ -8,6 +8,15 @@ description: Inject a Luau script from this repo into the running Roblox client 
 The `dex` MCP server bridges this repo to a live Roblox client. `dex_inject` is the
 edit → run → read-the-error loop; everything else here supports it.
 
+## Token budget
+
+- Inject by `file`, never paste the script into `code`. Never `Read` a whole `Scripts/*.lua` to
+  check it — `grep -n` + `Read` with `offset`/`limit`.
+- `capture_ms` only as long as needed (1500 default, 5000 for HTTP UI loads). Report `Status` +
+  errors only, not the whole `Output`.
+- `dex_console`: `errors_only: true` or `filter`, `count ≤ 20`.
+- State checks via one `dex_exec` returning a few compact lines.
+
 ## Before injecting
 
 1. `dex_status`. If it times out the bridge is not running — the user must execute
@@ -48,6 +57,12 @@ Read `Status` in the reply:
 - To check state a script left behind, `dex_exec` is cheaper than re-injecting:
   `return type(getgenv().ValkyrieCleanup)`, `return getgenv().Settings.Main.AutoSell`.
 - To look at what the script built, `dex_tree` on `Players.LocalPlayer.PlayerGui`.
+- "No errors" doesn't mean it works. For automation changes, measure the behavior the edit
+  was meant to fix (hits landed, rejected actions, time spent dodging) with a counter or
+  timeline probe from `dex-mechanics` (`references/probes.md` §4/§8).
+- If the script misbehaves because the game rule is unclear (wrong cooldown, whiffed hits,
+  guessed event names), stop patching values and use the `dex-mechanics` skill to confirm
+  the rule first.
 
 ## Iterating
 

@@ -106,6 +106,14 @@ local Products = {
         map    = "Steal An Egg",
         script = "https://www.valkyriehub.net/api/raw/steal-an-egg",
     },
+    ["slayer2"] = {
+        map    = "Slayer2",
+        script = "https://www.valkyriehub.net/api/raw/slayer2",
+    },
+    ["loot-to-forge"] = {
+        map    = "Loot To Forge",
+        script = "https://www.valkyriehub.net/api/raw/ltf-lua",
+    }
 }
 
 -- PlaceId -> product slug, or a list of slugs when one place can be served by
@@ -135,6 +143,14 @@ local Place = {
     [107778070777162] = "steal-an-egg",
     [133470009013038] = "steal-an-egg",
 
+    [16205713724] = "slayer2",
+    [17047024836] = "slayer2",
+    [75556147183481] = "slayer2",
+    [109676363279588] = "slayer2",
+    [130395143593224] = "slayer2",
+    [136406881576517] = "slayer2",
+
+    [118805555015549] = "loot-to-forge",
     -- A Kaitan build that is its own game: one PlaceId, one product.
     -- [000000000000000] = "haze-seas-kaitan",
 

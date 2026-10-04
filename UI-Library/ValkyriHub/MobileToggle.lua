@@ -252,7 +252,7 @@ function MobileToggle.new(Options)
 
     local Accent = Options.Accent or Color3.fromRGB(255, 80, 80)
     local Gradient = Options.Gradient or Color3.fromRGB(120, 20, 20)
-    local Logo = tostring(Options.Logo or "")
+    local Logo = tostring(Options.Logo or ""):match("^%s*(.-)%s*$")
 
     local Self = setmetatable({
         Options = Options,
@@ -365,7 +365,9 @@ function MobileToggle.new(Options)
     Image.Size = UDim2.new(0, math.floor(ButtonSize * 0.56), 0, math.floor(ButtonSize * 0.56))
     Image.BackgroundTransparency = 1
     Image.ScaleType = Enum.ScaleType.Fit
-    Image.Image = Logo ~= "" and ("rbxassetid://" .. Logo) or ""
+    -- Logo เป็น id ล้วนก็เติม prefix ให้ ถ้าเป็น url เต็ม ("rbxassetid://123", "rbxasset://...")
+    -- ส่งต่อตรง ๆ เติมซ้ำแล้ว Roblox โหลดไม่ขึ้น กลายเป็นกล่องเปล่าบนปุ่มลอย
+    Image.Image = Logo ~= "" and (Logo:find("://") and Logo or ("rbxassetid://" .. Logo)) or ""
     Image.ZIndex = 12
     Image.Parent = Button
 
