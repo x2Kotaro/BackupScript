@@ -795,12 +795,15 @@ function Carry.MotherHere(State)
     return Ok and Entry ~= nil
 end
 
--- children of the group (online, not done) that are not in this run
+-- children of the group (online, not done) that are not in this run. One the mother already
+-- gave up waiting for (MotherStep, 3 minutes) is left out for 10 minutes - otherwise a kaitan
+-- that never makes it in would send her back to the lobby after every match
 function Carry.Missing(State)
     local List = { }
+    local Skip = type(Saved.CarrySkip) == "table" and Saved.CarrySkip or { }
     for _, Kid in ipairs(Carry.Pending()) do
         local Ok, Entry = pcall(function() return State.participants:get(tostring(Kid.id)) end)
-        if not (Ok and Entry ~= nil) then table.insert(List, Kid) end
+        if not (Ok and Entry ~= nil) and (tonumber(Skip[tostring(Kid.id)]) or 0) < os.time() then table.insert(List, Kid) end
     end
     return List
 end
@@ -1785,6 +1788,20 @@ local function MotherStep(Rooms)
     if Here < #Kids and (Here == 0 or Waited < 180) then
         return Say("Carry", ("Grouping - kaitan in this server %d/%d%s  ·  %ds"):format(Here, #Kids,
             Idle > 0 and ("  ·  %d waiting for Start farm"):format(Idle) or "", math.floor(Waited)))
+    end
+    if Here < #Kids then
+        Saved.CarrySkip = type(Saved.CarrySkip) == "table" and Saved.CarrySkip or { }
+        local Fresh = false
+        for _, Kid in ipairs(Kids) do
+            local Id = tostring(Kid.id)
+            if not (Kid.farming ~= false and tostring(Kid.jobId) == game.JobId) and (tonumber(Saved.CarrySkip[Id]) or 0) < os.time() then
+                Saved.CarrySkip[Id], Fresh = os.time() + 600, true
+            end
+        end
+        if Fresh then
+            Save()
+            Note(("Carry: going with %d/%d - the rest are skipped for 10 minutes"):format(Here, #Kids))
+        end
     end
     JoinStep(Rooms, {
         Players = 1 + Here,
