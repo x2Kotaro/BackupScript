@@ -132,6 +132,9 @@ local Config = {
         WhiteScreen = true,  -- stop drawing the 3D world (Set3dRenderingEnabled): blank screen, the game's UI and mouse still show
         FpsCap      = 30,    -- setfpscap while farming (0 = leave the executor's cap)
     },
+    -- hide this account's name on screen: the panel, the game's UI (boss damage list...) and the
+    -- Roblox player list (what this PC shows only - others still see the real name)
+    HideName = true,
 
     Codes   = true,
     -- codes the client's codesConfig does not list yet (codesConfig carries MinimumLevel per code)
@@ -3264,12 +3267,13 @@ local function BuildPanel()
     local Card = CardFrame({ LayoutOrder = 3, Parent = Main })
     local Profile = New("Frame", { BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 52), LayoutOrder = -2, Parent = Card })
     New("ImageLabel", { Size = UDim2.fromOffset(52, 52), BackgroundColor3 = Theme.Track, BorderSizePixel = 0,
-        Image = ("rbxthumb://type=AvatarHeadShot&id=%d&w=150&h=150"):format(LocalPlayer.UserId), Parent = Profile },
+        Image = Config.HideName and "rbxassetid://87057639235201" or ("rbxthumb://type=AvatarHeadShot&id=%d&w=150&h=150"):format(LocalPlayer.UserId),
+        Parent = Profile },
         { Corner(26), New("UIStroke", { Color = Theme.Line, Thickness = 1 }) })
-    New("TextLabel", { BackgroundTransparency = 1, Position = UDim2.fromOffset(66, 7), Size = UDim2.new(1, -66, 0, 20), Text = LocalPlayer.DisplayName,
+    New("TextLabel", { BackgroundTransparency = 1, Position = UDim2.fromOffset(66, 7), Size = UDim2.new(1, -66, 0, 20), Text = Config.HideName and "Hidden" or LocalPlayer.DisplayName,
         TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, FontFace = Heading(Enum.FontWeight.SemiBold), TextSize = 17,
         TextColor3 = Theme.Text, Parent = Profile })
-    Panel.Who = New("TextLabel", { BackgroundTransparency = 1, Position = UDim2.fromOffset(66, 29), Size = UDim2.new(1, -66, 0, 16), Text = "@" .. LocalPlayer.Name,
+    Panel.Who = New("TextLabel", { BackgroundTransparency = 1, Position = UDim2.fromOffset(66, 29), Size = UDim2.new(1, -66, 0, 16), Text = "",
         TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, FontFace = Body(), TextSize = 13, TextColor3 = Theme.Muted, Parent = Profile })
     New("Frame", { BackgroundColor3 = Theme.Line, BorderSizePixel = 0, Size = UDim2.new(1, 0, 0, 1), LayoutOrder = -1, Parent = Card })
     local Row = New("Frame", { BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 16), LayoutOrder = 1, Parent = Card })
@@ -3317,7 +3321,8 @@ local function RenderPanel()
     Panel.Next.Text = Status.Plan ~= "" and (Gray("ต่อไป  ") .. Escape(Status.Plan)) or ""
     Panel.Next.Visible = Status.Plan ~= ""
 
-    Panel.Who.Text = "@" .. LocalPlayer.Name .. (Status.Main and ("  ·  " .. Status.Main) or "")
+    local Handle = Config.HideName and "@hidden" or ("@" .. LocalPlayer.Name)
+    Panel.Who.Text = Handle .. (Status.Main and ("  ·  " .. Status.Main) or "")
 end
 
 ---- ============ Performance (FPS boost / white screen) ============ ----
@@ -3378,9 +3383,31 @@ function Perf.Screen(On)
     end
 end
 
+-- name -> "Hidden" in every text of the game's UI (checked each second: the boss bar rewrites
+-- its damage list all the time) + the Roblox player list off
+local function Plain(Text) return (Text:gsub("[%p]", "%%%0")) end
+function Perf.HideName()
+    if not Config.HideName then return end
+    if not Perf.ListOff then
+        Perf.ListOff = pcall(function() game:GetService("StarterGui"):SetCoreGuiEnabled(Enum.CoreGuiType.PlayerList, false) end)
+    end
+    local Gui = LocalPlayer:FindFirstChildOfClass("PlayerGui")
+    if not Gui then return end
+    local Names = { Plain(LocalPlayer.Name) }
+    if LocalPlayer.DisplayName ~= LocalPlayer.Name then table.insert(Names, Plain(LocalPlayer.DisplayName)) end
+    for _, Object in ipairs(Gui:GetDescendants()) do
+        if Object:IsA("TextLabel") or Object:IsA("TextButton") then
+            local Text = Object.Text
+            for _, Name in ipairs(Names) do Text = Text:gsub(Name, "Hidden") end
+            if Text ~= Object.Text then Object.Text = Text end
+        end
+    end
+end
+
 function Perf.Step()
     local On = Farming() and Live()
     local P = Config.Performance or { }
+    pcall(Perf.HideName)
     if On and P.Boost then pcall(Perf.Boost) end
     pcall(Perf.Screen, On and P.WhiteScreen == true)
     local Cap = On and tonumber(P.FpsCap) or 0
@@ -3393,6 +3420,7 @@ end
 function Perf.Stop()
     pcall(Perf.Screen, false)
     if Perf.Cap and Perf.Cap > 0 and setfpscap then pcall(setfpscap, 240) end
+    if Perf.ListOff then pcall(function() game:GetService("StarterGui"):SetCoreGuiEnabled(Enum.CoreGuiType.PlayerList, true) end) end
 end
 
 ---- ============ Re-run after teleport ============ ----
