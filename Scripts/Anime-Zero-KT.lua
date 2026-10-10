@@ -126,6 +126,13 @@ local Config = {
     Trait = { Keep = { "Supernova", "Deadeye", "Ferocity" } },
     Gear  = true,     -- equip the best damage title + accessories already owned
 
+    -- while farming (user 2026-10-10: as light as possible for many accounts on one PC)
+    Performance = {
+        Boost       = true,  -- lowest graphics: no shadows / effects / particles / textures, plastic materials
+        WhiteScreen = true,  -- stop drawing the 3D world (Set3dRenderingEnabled) behind a white screen; the panel stays
+        FpsCap      = 30,    -- setfpscap while farming (0 = leave the executor's cap)
+    },
+
     Codes   = true,
     -- codes the client's codesConfig does not list yet (codesConfig carries MinimumLevel per code)
     ExtraCodes = { "50KCCU" },
@@ -3313,6 +3320,87 @@ local function RenderPanel()
     Panel.Log.Visible = #Log > 0
 end
 
+---- ============ Performance (FPS boost / white screen) ============ ----
+-- Only while farming. Boost is client-side only (what this PC draws; the server and the game's
+-- logic see nothing) and stays for the session; the white screen and the FPS cap follow
+-- Start / Stop farm and are undone by KaitanCleanup.
+
+local Perf = { Boosted = false }
+
+local function Lighten(Object)
+    if Object:IsA("ParticleEmitter") or Object:IsA("Trail") or Object:IsA("Beam") or Object:IsA("Smoke")
+        or Object:IsA("Fire") or Object:IsA("Sparkles") then
+        Object.Enabled = false
+    elseif Object:IsA("Decal") or Object:IsA("Texture") then
+        Object.Transparency = 1
+    elseif Object:IsA("BasePart") then
+        Object.Material = Enum.Material.Plastic
+        Object.Reflectance = 0
+        Object.CastShadow = false
+    elseif Object:IsA("PostEffect") or Object:IsA("Atmosphere") or Object:IsA("Clouds") then
+        pcall(function() Object.Enabled = false end)
+        if Object:IsA("Atmosphere") then Object.Density = 0 end
+    elseif Object:IsA("Explosion") then
+        Object.Visible = false
+    end
+end
+
+function Perf.Boost()
+    if Perf.Boosted then return end
+    Perf.Boosted = true
+    pcall(function() settings().Rendering.QualityLevel = Enum.QualityLevel.Level01 end)
+    local Lighting = game:GetService("Lighting")
+    pcall(function()
+        Lighting.GlobalShadows = false
+        Lighting.FogEnd = 1e9
+        Lighting.EnvironmentDiffuseScale, Lighting.EnvironmentSpecularScale = 0, 0
+    end)
+    pcall(function()
+        local Terrain = workspace:FindFirstChildOfClass("Terrain")
+        Terrain.WaterWaveSize, Terrain.WaterWaveSpeed, Terrain.WaterReflectance, Terrain.WaterTransparency = 0, 0, 0, 0
+        Terrain.Decoration = false
+    end)
+    for _, Root in ipairs({ workspace, Lighting }) do
+        for _, Object in ipairs(Root:GetDescendants()) do pcall(Lighten, Object) end
+        -- skill VFX, drops and new areas keep spawning: light those too
+        TrackConnection(Root.DescendantAdded:Connect(function(Object)
+            if Live() then task.defer(pcall, Lighten, Object) end
+        end))
+    end
+end
+
+function Perf.Screen(On)
+    if On and not Perf.Gui then
+        local Gui = New("ScreenGui", { Name = "\0", ResetOnSpawn = false, IgnoreGuiInset = true, DisplayOrder = 998 })
+        New("Frame", { Size = UDim2.fromScale(1, 1), BorderSizePixel = 0, BackgroundColor3 = Color3.new(1, 1, 1), Parent = Gui })
+        Gui.Parent = (gethui and gethui()) or game:GetService("CoreGui")
+        Perf.Gui = Gui
+    end
+    if Perf.Gui then Perf.Gui.Enabled = On end
+    if Perf.Rendering ~= On then
+        Perf.Rendering = On
+        pcall(RunService.Set3dRenderingEnabled, RunService, not On)
+    end
+end
+
+function Perf.Step()
+    local On = Farming() and Live()
+    local P = Config.Performance or { }
+    if On and P.Boost then pcall(Perf.Boost) end
+    pcall(Perf.Screen, On and P.WhiteScreen == true)
+    local Cap = On and tonumber(P.FpsCap) or 0
+    if Cap ~= Perf.Cap and setfpscap then
+        Perf.Cap = Cap
+        pcall(setfpscap, Cap > 0 and Cap or 240)
+    end
+end
+
+function Perf.Stop()
+    pcall(Perf.Screen, false)
+    if Perf.Gui then pcall(function() Perf.Gui:Destroy() end) Perf.Gui = nil end
+    if Perf.Cap and Perf.Cap > 0 and setfpscap then pcall(setfpscap, 240) end
+end
+
 ---- ============ Re-run after teleport ============ ----
 
 local function Serialize(Value)
@@ -3375,6 +3463,12 @@ task.spawn(function()
         task.wait(0.25)
     end
 end)
+task.spawn(function()
+    while Live() do
+        Perf.Step()
+        task.wait(1)
+    end
+end)
 
 getgenv().KaitanCleanup = function()
     getgenv().KaitanSession = nil
@@ -3385,6 +3479,7 @@ getgenv().KaitanCleanup = function()
     if Battle.Controller and Battle.Holding then pcall(Battle.Controller.setTouchHeld, "Attack", false) end
     if Battle.Footer then pcall(function() Battle.Footer:Destroy() end) end
     if Panel.Gui then pcall(function() Panel.Gui:Destroy() end) end
+    Perf.Stop()
     getgenv().KaitanCleanup = nil
 end
 
