@@ -2506,8 +2506,11 @@ local function EndStep()
             pcall(function() Next = Read(State.canNext) == true and Saved.PlanKey:find("progress") ~= nil end)
             Battle.Action = Work and 3 or (Next and 2 or 1)
             -- Sung Jinwoo owned = strong enough (user 2026-10-10): Retry straight away; the lobby
-            -- (spending, placing, stage change) only on the regular visit every Lobby.Every matches
-            if Owns("sung_jinwoo", Data) and (Saved.SinceLobby or 0) < (Config.Lobby.Every or 10) then
+            -- (spending) only on the regular visit every Lobby.Every matches. A unit waiting to be
+            -- placed or a new stage still leaves now (user 2026-10-10: it kept retrying Bathtub
+            -- with Hu Tao already dropped)
+            local Must = type(Work) == "string" and (Work:find("ready to place", 1, true) or Work:find("next stage", 1, true))
+            if Owns("sung_jinwoo", Data) and not Must and (Saved.SinceLobby or 0) < (Config.Lobby.Every or 10) then
                 Battle.Action, Work = 1, nil
             end
             -- mother with children in this run: Retry together (Leave only for the regular lobby visit)
