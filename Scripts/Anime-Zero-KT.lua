@@ -1988,11 +1988,27 @@ function Battle.Priority()
     end
 end
 
--- target: raid priority, then minions before the boss, sticky until dead, nearest otherwise
+-- target: raid priority, then gather, then the biggest bunch (user 2026-10-10: Bathtub floors
+-- spawn on three levels - floor, middle walkway, top balcony - and nearest-first left them
+-- spread out). Gather = hit every enemy once so it chases us ("tagged": took damage, targets
+-- us, or 2 s spent on it); then fight the enemy with the most others within 12 studs, so M1
+-- and skills land on the whole pack, sticky until dead unless a clearly bigger pack forms.
+-- Story keeps minions before the boss. Enemy ids are reused after death (0-255).
+Battle.Tagged = { }
+
+local function ClusterScore(Entry, List)
+    local Count = 0
+    for _, Other in ipairs(List) do
+        if (Other.Position - Entry.Position).Magnitude <= 12 then Count = Count + 1 end
+    end
+    return Count
+end
+
 local function PickTarget(Hrp)
     local All = Battle.Targets()
     local Want = Battle.Priority()
     local Raid = tostring(workspace:GetAttribute("Mode") or ""):find("raid") ~= nil
+    local Me = tostring(LocalPlayer.UserId)
     local Minions = false
     for _, Enemy in pairs(All) do
         if (Read(Enemy.health) or 0) > 0 and not IsBoss(Enemy) then Minions = true break end
@@ -2005,12 +2021,10 @@ local function PickTarget(Hrp)
         end
         return Raid or not (Minions and IsBoss(Enemy))
     end
-    local Current = Battle.Target and All[Battle.Target]
-    if Current and Allowed(Current) then return Battle.Target, Current end
     local function Nearest(Filter)
         local BestId, Best, BestDistance = nil, nil, math.huge
         for Id, Enemy in pairs(All) do
-            if Filter(Enemy) then
+            if Filter(Id, Enemy) then
                 local Position = EnemyPosition(Id, Enemy)
                 local Distance = Position and (Position - Hrp.Position).Magnitude or math.huge
                 if Distance < BestDistance then BestId, Best, BestDistance = Id, Enemy, Distance end
@@ -2018,13 +2032,72 @@ local function PickTarget(Hrp)
         end
         return BestId, Best
     end
-    local Id, Enemy = Nearest(Allowed)
-    if not Id and Want then
+    Battle.Gathering = false
+
+    -- raid events: nearest of the wanted ones, sticky until dead
+    if Want then
+        local Current = Battle.Target and All[Battle.Target]
+        if Current and Allowed(Current) then return Battle.Target, Current end
+        local Id, Enemy = Nearest(function(_, Enemy) return Allowed(Enemy) end)
+        if Id then
+            Battle.Target, Battle.Rescored = Id, os.clock()
+            return Id, Enemy
+        end
         Want = nil
-        Id, Enemy = Nearest(Allowed)
     end
-    Battle.Target = Id
-    return Id, Enemy
+
+    -- gather: tag whatever does not chase us yet, nearest first
+    for Id in pairs(Battle.Tagged) do
+        local Enemy = All[Id]
+        if not Enemy or (Read(Enemy.health) or 0) <= 0 then Battle.Tagged[Id] = nil end
+    end
+    local Tagging = Battle.Tagging
+    if Tagging then
+        local Enemy = All[Tagging.Id]
+        local Health = Enemy and (Read(Enemy.health) or 0) or 0
+        if Health <= 0 or Health < Tagging.Health or Read(Enemy.target) == Me or os.clock() - Tagging.Since > 2 or not Allowed(Enemy) then
+            Battle.Tagged[Tagging.Id], Battle.Tagging = true, nil
+        else
+            Battle.Target, Battle.Gathering = nil, true
+            return Tagging.Id, Enemy
+        end
+    end
+    local GatherId, Gather = Nearest(function(Id, Enemy)
+        if Battle.Tagged[Id] or not Allowed(Enemy) then return false end
+        if Read(Enemy.target) == Me then Battle.Tagged[Id] = true return false end
+        return true
+    end)
+    if GatherId then
+        Battle.Tagging = { Id = GatherId, Health = Read(Gather.health) or 0, Since = os.clock() }
+        Battle.Target, Battle.Gathering = nil, true
+        return GatherId, Gather
+    end
+
+    -- fight: the biggest pack (ties: lower health)
+    local List = { }
+    for Id, Enemy in pairs(All) do
+        local Position = Allowed(Enemy) and EnemyPosition(Id, Enemy)
+        if Position then table.insert(List, { Id = Id, Enemy = Enemy, Position = Position, Health = Read(Enemy.health) or 0 }) end
+    end
+    local Best, BestScore = nil, -1
+    for _, Entry in ipairs(List) do
+        local Score = ClusterScore(Entry, List)
+        if Score > BestScore or (Score == BestScore and Entry.Health < Best.Health) then Best, BestScore = Entry, Score end
+    end
+    if not Best then
+        Battle.Target = nil
+        return nil, nil
+    end
+    local Current = Battle.Target and All[Battle.Target]
+    if Current and Allowed(Current) then
+        if os.clock() - (Battle.Rescored or 0) < 1.5 then return Battle.Target, Current end
+        Battle.Rescored = os.clock()
+        for _, Entry in ipairs(List) do
+            if Entry.Id == Battle.Target and ClusterScore(Entry, List) + 2 > BestScore then return Battle.Target, Current end
+        end
+    end
+    Battle.Target, Battle.Rescored = Best.Id, os.clock()
+    return Best.Id, Best.Enemy
 end
 
 local function NearestCash(Hrp)
@@ -2339,7 +2412,7 @@ local function BattleStep()
         end
     end
     Say("Farm", ("Area %s  wave %s/%s  enemies %d%s"):format(tostring(Read(State.area)), tostring(Read(State.wave)), tostring(Read(State.waveCount)), Count,
-        Breaking and "  (breaking wall)" or (Target and IsBoss(Target) and "  (boss)" or "")))
+        Breaking and "  (breaking wall)" or (Battle.Gathering and "  (gathering)" or (Target and IsBoss(Target) and "  (boss)" or ""))))
 
     local Switching = Battle.SwitchPending and os.clock() - Battle.SwitchPending < 1.5
     SetHold(not Switching and ((Target ~= nil and not Battle.Override) or Breaking))
@@ -2359,7 +2432,8 @@ local function BattleStep()
         Battle.CastCount, Battle.LastCast = 0, os.clock()
     end
 
-    if InRange and not Battle.SwitchPending then
+    -- skills wait for the pack: tagging only needs a hit
+    if InRange and not Battle.SwitchPending and not Battle.Gathering then
         local Ult = Config.Farm.Ultimate
         if Ult == true or (Ult == "Boss" and IsBoss(Target)) then pcall(Battle.Controller.performSkill, 4) end
         if Config.Farm.Skills then
