@@ -876,8 +876,11 @@ function Plan.TraitKeep(Id)
 end
 
 -- first team character (main first) whose trait is not kept yet, while rerolls last
+-- rerolls come last (user 2026-10-10): only at end game - every raid unit owned and nothing
+-- left to evolve - the rerolls pile up until then
 function Plan.TraitWanted(Data)
     if Currency("traitRerolls", Data) < 1 or #(Config.Trait.Keep or { }) == 0 then return nil end
+    if Plan.UnitsPending(Data) or not Grow.EndGame(Data) then return nil end
     local Main = Plan.Main(Data)
     local List = { Main }
     for _, Entry in ipairs(Grow.Owned(Data)) do
@@ -1027,8 +1030,6 @@ function Plan.LobbyWork(Data)
     if not Data then return false end
     local Code = Plan.PendingCode(Data)
     if Code then return "code " .. Code end
-    local Trait = Plan.TraitWanted(Data)
-    if Trait then return "trait " .. NameOf(Trait) end
     local Spins = Currency("luckySpins", Data)
     local Gems = Currency("gems", Data) - (Config.Summon.KeepGems or 0)
     local EndGame = not Plan.UnitsPending(Data) and Grow.EndGame(Data)
@@ -1067,6 +1068,8 @@ function Plan.LobbyWork(Data)
             if Node and Node.Cost <= Tokens then return ("skill %s %s %d"):format(NameOf(Entry.Id), Node.Branch, Node.Tier) end
         end
     end
+    local Trait = Plan.TraitWanted(Data)
+    if Trait then return "trait " .. NameOf(Trait) end
     local Next = Plan.Current(Data)
     if Next and Next.Key ~= Saved.PlanKey then return "next stage: " .. Next.Label end
     if (Saved.SinceLobby or 0) >= (Config.Lobby.Every or 10) then return "claims" end
@@ -1877,9 +1880,9 @@ local function LobbyMain()
         { "Shop", ShopMaterials },
         { "Evolve", Config.Lobby.Evolve and EvolveAll },
         { "Igris", UpgradeIgris },
-        { "Traits", function() if not Carry.Child() then RollTraits() end end },
         { "Gear", EquipGear },
         { "Team", EquipTeam },
+        { "Traits", function() if not Carry.Child() then RollTraits() end end },
     }
     if Config.DryRun then
         local Data = AccountTable()
