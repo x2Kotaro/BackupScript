@@ -12,42 +12,49 @@
 --  is written to `Valkyrie Hub/MyKey/key.txt` and every later run picks it up
 --  from there, so the LicenseKey line can be dropped.
 --
---  ── Running the KAITAN build ──
+--  ── Running the KAITAN build (ไก่ตัน) ──
 --
---  A map that ships two builds sells them as two products: the Normal one and
---  the Kaitan one. Which of them a place serves is decided here, in `Place`
---  below, and when a place is listed against BOTH the loader walks them in
---  order and runs the first one this key owns.
+--  One line above the loadstring:
 --
---  That is the part to override when a key owns both and the Kaitan build is
---  the one wanted:
---
---      getgenv().LicenseKey      = "YOUR-KEY"
---      getgenv().Mode = "Kaitan"
+--      getgenv().LicenseKey = "YOUR-KEY"
+--      getgenv().Kaitan = true
 --
 --      loadstring(game:HttpGet("https://www.valkyriehub.net/api/raw/loading"))()
 --
---  `Mode` takes the variant name ("Kaitan", or "Normal" to force the ordinary
---  build). `ValkyrieProduct` takes a full slug instead and is the more exact of
---  the two:
+--  `Kaitan` is also where the build's own settings go, and a table means Kaitan
+--  just the same, so settings and the switch are one line:
 --
---      getgenv().ValkyrieProduct = "grow-a-chicken-fighter-kaitan"
+--      getgenv().Kaitan = { Slots = { "Cursed King", "Sung Jinwoo", "Hu Tao", "LYTH" } }
 --
---  Either way the pin only narrows what this place already offers. Naming a
---  build the place does not serve is ignored rather than obeyed, so a pin left
---  in a saved script cannot send the wrong loader to the wrong game.
+--  `true` runs on the settings saved from the last Kaitan run (or the build's
+--  defaults), `false` forces the ordinary build. Settings set on the website
+--  (Global Settings) override both.
 --
---  The Kaitan build takes its own settings through `getgenv().Kaitan`, which is
---  read by the script this loader fetches and has nothing to do with the
---  whitelist. It goes in the same place, above the loadstring:
+--  Without it the run is the ordinary build (the menu hub), even for a key that
+--  owns both. The one exception is a key that owns only the Kaitan build: it is
+--  refused the ordinary one and falls through to Kaitan rather than a kick.
 --
---      getgenv().Kaitan = { Goal = { Rebirth = 100 }, Web = true }
+--  Nothing about the choice is remembered between runs: it is exactly what is
+--  set above the loadstring. The Kaitan build carries it across its own
+--  teleports (its queued chunk sets getgenv().Kaitan again).
+--
+--  The older pins still work. `Mode` wins over `Kaitan`, `Kaitan` over
+--  `ValkyrieProduct`:
+--
+--      getgenv().Mode = "Kaitan"          -- or "KT" / "Normal"
+--      getgenv().ValkyrieProduct = "anime-zero-kaitan"
+--
+--  Every pin only narrows what this place already offers. Naming a build the
+--  place does not serve is ignored rather than obeyed, so a pin left in a saved
+--  script cannot send the wrong loader to the wrong game.
 --
 --  ── Everything else that can be set from outside ──
 --
 --      LicenseKey / License / Key / ValkyrieKey   the key, any of the four
---      Mode                                       "Kaitan" / "Normal"
+--      Kaitan                                     true / false / settings table
+--      Mode                                       "Kaitan" / "KT" / "Normal"
 --      ValkyrieProduct                            a full product slug
+--      ValkyrieApproved                           (read only) the build this run got
 --      ValkyrieHWID                               pin the machine id by hand
 --      ValkyrieEndpoint                           replace the whitelist host
 -- ══════════════════════════════════════════════════════════════════════════
@@ -113,8 +120,20 @@ local Products = {
     ["loot-to-forge"] = {
         map    = "Loot To Forge",
         script = "https://www.valkyriehub.net/api/raw/ltf-lua",
-    }
+    },
+    ["anime-zero"] = {
+        map    = "Anime Zero",
+        script = "https://www.valkyriehub.net/api/raw/anime-zero",
+    },
+    ["anime-zero-kaitan"] = {
+        map     = "Anime Zero",
+        variant = "Kaitan",
+        script  = "https://www.valkyriehub.net/api/raw/anime-zero-kaitan",
+    },
 }
+
+-- Every Anime Zero place (lobby, match servers) serves both builds.
+local AnimeZero = { "anime-zero", "anime-zero-kaitan" }
 
 -- PlaceId -> product slug, or a list of slugs when one place can be served by
 -- more than one product (a Kaitan build living inside the same place as the
@@ -127,17 +146,15 @@ local Products = {
 --
 --     [94640181989498] = { "grow-a-chicken-fighter", "grow-a-chicken-fighter-kaitan" },
 --
--- Order is the default. A key that owns both and pins nothing gets the first
--- entry, so the Normal build is listed first and Kaitan is opted into.
+-- Order is the default. Normal is listed first: nothing set = the menu hub, and
+-- Kaitan is opted into (getgenv().Kaitan / Mode = "Kaitan"). A key that owns
+-- only the Kaitan build is refused Normal and falls through to it.
 local Place = {
     [6918802270]      = "haze-seas",
     [14979402479]     = "haze-seas",
     [99664616626491]  = "haze-seas",
     [106600795455627] = "haze-seas",
-    -- Grow a Chicken Fighter serves both builds. Normal is listed first, so a
-    -- key that owns it gets it and nothing changes for those customers; only a
-    -- key refused the Normal build falls through and is asked about Kaitan.
-    -- getgenv().Mode = "Kaitan" skips straight to the second entry.
+    -- Grow a Chicken Fighter serves both builds, Normal first (see above).
     [94640181989498]  = { "grow-a-chicken-fighter", "grow-a-chicken-fighter-kaitan" },
     [94939256104840]  = { "grow-a-chicken-fighter", "grow-a-chicken-fighter-kaitan" },
     [107778070777162] = "steal-an-egg",
@@ -151,6 +168,17 @@ local Place = {
     [136406881576517] = "slayer2",
 
     [118805555015549] = "loot-to-forge",
+
+    [114574503491412] = AnimeZero,
+    [75234352859575] = AnimeZero,
+    [96023089630459] = AnimeZero,
+    [97017097101354] = AnimeZero,
+    [109151342576374] = AnimeZero,
+    [113369844309540] = AnimeZero,
+    [126462205679010] = AnimeZero,
+    [128853426265988] = AnimeZero,
+    [132303256922720] = AnimeZero,
+    [139663016529990] = AnimeZero,
     -- A Kaitan build that is its own game: one PlaceId, one product.
     -- [000000000000000] = "haze-seas-kaitan",
 
@@ -183,18 +211,11 @@ local hasFileSystem = typeof(writefile) == "function"
 -- run that came back any other way used to come back as the ordinary build on
 -- default settings. That looks exactly like the script working.
 --
--- Three things are remembered, and the key is not one of them: it has its own
--- file already (key.txt, written only after the server verified it).
---
---   product   the slug the whitelist actually approved -- more exact than the
---             variant name that asked for it
---   mode      what was passed as getgenv().Mode, for a place whose product
---             list has changed since
---   kaitan    the getgenv().Kaitan table, restored before the build reads it
---
--- getgenv() always wins: what is typed above the loadstring this run overrides
--- what was saved, and then replaces it. Deleting the file is how a run goes back
--- to defaults.
+-- Only the Kaitan build's settings table is remembered (restored before that
+-- build reads it), plus the slug last approved, for support to look at. Which
+-- build runs is NOT remembered: a saved pin made a later run with nothing set
+-- come back as Kaitan, and nothing set must always mean the ordinary build.
+-- The key has its own file (key.txt, written only after the server verified it).
 local SESSION_FILE = KEY_FOLDER .. "/Session.json"
 
 local Session = { }
@@ -215,11 +236,17 @@ if hasFileSystem then
     end
 end
 
+-- What was typed above the loadstring this run, before the saved session fills
+-- anything in: only this picks the build. A restored settings table is not a
+-- request for Kaitan -- it may be another game's.
+local TypedKaitan = genv.Kaitan
+
 -- The build's own settings go back into getgenv() here rather than being handed
 -- over directly, because the build reads getgenv().Kaitan and knows nothing
--- about this file.
-if type(genv.Kaitan) ~= "table" and type(Session.kaitan) == "table" then
-    genv.Kaitan = Session.kaitan
+-- about this file. `true` and `false` are switches, not settings, so they make
+-- room for the saved table too (the build only reads a table).
+if type(genv.Kaitan) ~= "table" then
+    genv.Kaitan = type(Session.kaitan) == "table" and Session.kaitan or nil
 end
 
 local function saveSession(slug)
@@ -227,7 +254,6 @@ local function saveSession(slug)
 
     local Data = {
         product = slug,
-        mode = type(genv.Mode) == "string" and genv.Mode ~= "" and genv.Mode or Session.mode,
         kaitan = type(genv.Kaitan) == "table" and genv.Kaitan or Session.kaitan,
     }
 
@@ -244,6 +270,10 @@ local function saveSession(slug)
     pcall(writefile, SESSION_FILE, Body)
 end
 
+local function trimSpaces(value)
+    return (tostring(value):gsub("^%s+", ""):gsub("%s+$", ""))
+end
+
 -- The candidate products for this place, always as a list.
 local Candidates do
     local entry = Place[PlaceId]
@@ -258,14 +288,27 @@ local Candidates do
     -- Support and testers can pin one build when a place serves both. Accepts
     -- either a full slug through ValkyrieProduct ("haze-seas-kaitan") or a
     -- variant name through Mode ("Kaitan").
-    --
-    -- What was saved last run is the last resort, and it is what makes a cold
-    -- start -- a crash, a restart, an auto-execute -- come back as the same
-    -- build. A saved pin naming a product this place does not serve is filtered
-    -- out below like any other, so carrying one between games costs nothing.
-    local pinned = genv.ValkyrieProduct or genv.Mode or Session.product or Session.mode
-    if type(pinned) == "string" and pinned ~= "" then
-        pinned = string.lower(pinned)
+    -- A pin naming a product this place does not serve is filtered out below.
+    local function variantOf(value)
+        if type(value) ~= "string" or value == "" then return nil end
+        local name = string.lower(trimSpaces(value))
+        if name == "kt" or name == "ไก่ตัน" or name == "ไก่" then return "kaitan" end
+        if name == "menu" or name == "hub" or name == "ธรรมดา" then return "normal" end
+        return name
+    end
+
+    local typed = nil
+    if TypedKaitan == true or type(TypedKaitan) == "table" then
+        typed = "kaitan"
+    elseif TypedKaitan == false then
+        typed = "normal"
+    end
+
+    -- Kaitan comes before ValkyrieProduct: older loaders wrote the approved
+    -- slug there and both builds still carry it through their teleport queue,
+    -- so it can be stale; what was typed this run must win.
+    local pinned = variantOf(genv.Mode) or typed or variantOf(genv.ValkyrieProduct)
+    if pinned then
         local picked = {}
         for _, slug in ipairs(Candidates) do
             local info = Products[slug]
@@ -568,7 +611,19 @@ local function resolveProduct()
         if data.valid then
             genv.ValkyrieWhitelisted = true
             genv.ValkyrieUser = data
-            genv.ValkyrieProduct = slug
+            -- What was approved goes in ValkyrieApproved, and ValkyrieProduct is
+            -- cleared: it is a pin the player sets, and both builds copy it into
+            -- their teleport queue. Leaving the approved slug there turned one
+            -- Normal run into a pin that every later teleport obeyed, so a
+            -- Kaitan buyer stayed on the menu for good.
+            genv.ValkyrieApproved = slug
+            genv.ValkyrieProduct = nil
+            -- A Kaitan build re-runs itself after every teleport. Pointing it
+            -- back here (not at its raw URL) keeps the key checked each time.
+            local info = Products[slug]
+            if info and info.variant == "Kaitan" and (type(genv.KaitanLoader) ~= "string" or genv.KaitanLoader == "") then
+                genv.KaitanLoader = 'loadstring(game:HttpGet("https://www.valkyriehub.net/api/raw/loading"))()'
+            end
             -- verified, so this is the build a cold start should come back as
             saveSession(slug)
             -- Verified: remember the key so the next run needs no getgenv().License.
@@ -579,8 +634,13 @@ local function resolveProduct()
         -- Printed before the kick, because the kick dialog cannot say which key
         -- was actually sent -- which is the one thing needed to tell a bad key
         -- apart from a key the loader never received.
-        warn(("[Valkyrie] rejected: %s | product=%s | source=%s | len=%d | key=%s | hwid=%s")
-            :format(tostring(data.error), slug, KEY_SOURCE, #KEY, maskKey(KEY), HWID))
+        -- Not for "No Permission" with another build still to ask: a key that
+        -- owns only the Kaitan build is meant to be refused Normal first.
+        local lastCandidate = slug == Candidates[#Candidates]
+        if data.error ~= "No Permission" or lastCandidate then
+            warn(("[Valkyrie] rejected: %s | product=%s | source=%s | len=%d | key=%s | hwid=%s")
+                :format(tostring(data.error), slug, KEY_SOURCE, #KEY, maskKey(KEY), HWID))
+        end
 
         -- The key is only wrong in these two cases. "No Permission" and
         -- "Invalid HWID" mean the key is fine, so it stays saved.
