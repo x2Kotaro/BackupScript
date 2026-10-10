@@ -1074,6 +1074,10 @@ end
 -- spent on the characters passing through (they get rolled away)
 function Plan.Starter(Data)
     if Carry.Child(Data) then return false end -- carried: the mother farms Jinwoo first
+    -- the Lucky Spin starter (Cursed King) only matters until Sung Jinwoo is in (user 2026-10-10:
+    -- it is the fallback for an account nobody carries); with him the run builds him, never
+    -- turns every gem into spins for slot 1 again
+    if Carry.ChildDone(Data) then return false end
     local Target = Config.Slots[1] or ""
     if Target == "" or not Rollable(Target) then return false end
     local S = SlotData(1, Data)
