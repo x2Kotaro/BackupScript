@@ -1537,7 +1537,7 @@ local function EquipTeam()
     for I, Entry in ipairs(List) do
         if Entry.Id == Main and I == 2 then List[1], List[2] = List[2], List[1] end
     end
-    -- Sung Jinwoo owned: he leads (the match does no tag team then)
+    -- Sung Jinwoo owned: he leads (the match plays only him)
     for I, Entry in ipairs(List) do
         if Entry.Id == "sung_jinwoo" and I > 1 then table.insert(List, 1, table.remove(List, I)) break end
     end
@@ -2190,14 +2190,26 @@ local function SetHold(On)
 end
 
 local function TagTeam(Store, Character, InRange)
+    local Switch = Store.state.cooldowns:get("characterSwitch")
+    local SwitchReady = not (Switch and workspace:GetServerTimeNow() < (Read(Switch) or 0))
+    -- Sung Jinwoo owned (user 2026-10-10): always play him, no tag team. Whoever the match
+    -- starts with (he can sit in team slot 2) switches to him once, then he never switches out
+    if Owns("sung_jinwoo") then
+        Battle.SwitchPending = nil
+        if Character ~= "sung_jinwoo" and table.find(TeamMates(Character), "sung_jinwoo") and SwitchReady and SkillIdle()
+            and os.clock() - (Battle.SwitchAt or 0) > 1 then
+            Battle.SwitchFrom, Battle.SwitchAt = Character, os.clock()
+            pcall(Battle.Controller.performSwitch)
+        end
+        return
+    end
     if not Config.Farm.TagTeam or os.clock() - (Battle.LastSwitch or 0) < 1.5
         or (tonumber(workspace:GetAttribute("RaidOathCount")) or 0) > 0 then
         Battle.SwitchPending = nil
         return
     end
     local Mates = TeamMates(Character)
-    -- Sung Jinwoo owned = no tag team at all (user 2026-10-10); he leads the team (EquipTeam)
-    if #Mates == 0 or Owns("sung_jinwoo") then
+    if #Mates == 0 then
         Battle.SwitchPending = nil
         return
     end
@@ -2205,8 +2217,6 @@ local function TagTeam(Store, Character, InRange)
     for Slot = 1, 3 do
         if SkillReady(Store, Character, Slot) then AllCooling = false break end
     end
-    local Switch = Store.state.cooldowns:get("characterSwitch")
-    local SwitchReady = not (Switch and workspace:GetServerTimeNow() < (Read(Switch) or 0))
     local MateSkills = 0
     for _, Mate in ipairs(Mates) do
         local Count = 0
