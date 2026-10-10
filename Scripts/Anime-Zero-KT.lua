@@ -1080,6 +1080,8 @@ local function UpdateSlotStatus()
     }
     local Ok, Next = pcall(Plan.Current, Data)
     Status.Plan = Ok and Next and Next.Label or ""
+    local Main = Plan.Main(Data)
+    Status.Main = Main and ("%s Lv%d"):format(NameOf(Main), Grow.Level(Main, Data)) or nil
 end
 
 ---- ============ Lobby ============ ----
@@ -3173,7 +3175,7 @@ end
 
 ---- ============ Status panel ============ ----
 -- fixed card in the middle of the screen, black and white: Welcome + logo, Dashboard / Discord
--- buttons, STATUS (what it is doing now, next) and what the run has gained since Start farm
+-- buttons, then one card: avatar + name + main character, STATUS (what it is doing now, next)
 
 local Panel = { }
 
@@ -3221,11 +3223,6 @@ local function CardFrame(Props)
     return Frame
 end
 
-local function Title(Text, Parent)
-    return New("TextLabel", { BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 16), Text = Text, LayoutOrder = 0, TextXAlignment = Enum.TextXAlignment.Left,
-        TextColor3 = Theme.Muted, FontFace = Body(Enum.FontWeight.Medium), TextSize = 12, Parent = Parent })
-end
-
 local function BuildPanel()
     local Parent = (gethui and gethui()) or game:GetService("CoreGui")
     local Gui = New("ScreenGui", { Name = "\0", ResetOnSpawn = false, IgnoreGuiInset = true, DisplayOrder = 999, ZIndexBehavior = Enum.ZIndexBehavior.Sibling })
@@ -3263,8 +3260,18 @@ local function BuildPanel()
     Button("Copy Dashboard", true, Config.DashboardUrl)
     Button("Copy Discord", false, Config.DiscordUrl)
 
-    -- status: what it is doing now
+    -- one card (user 2026-10-10: no "gained" card): who is farming, then what it is doing now
     local Card = CardFrame({ LayoutOrder = 3, Parent = Main })
+    local Profile = New("Frame", { BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 52), LayoutOrder = -2, Parent = Card })
+    New("ImageLabel", { Size = UDim2.fromOffset(52, 52), BackgroundColor3 = Theme.Track, BorderSizePixel = 0,
+        Image = ("rbxthumb://type=AvatarHeadShot&id=%d&w=150&h=150"):format(LocalPlayer.UserId), Parent = Profile },
+        { Corner(26), New("UIStroke", { Color = Theme.Line, Thickness = 1 }) })
+    New("TextLabel", { BackgroundTransparency = 1, Position = UDim2.fromOffset(66, 7), Size = UDim2.new(1, -66, 0, 20), Text = LocalPlayer.DisplayName,
+        TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, FontFace = Heading(Enum.FontWeight.SemiBold), TextSize = 17,
+        TextColor3 = Theme.Text, Parent = Profile })
+    Panel.Who = New("TextLabel", { BackgroundTransparency = 1, Position = UDim2.fromOffset(66, 29), Size = UDim2.new(1, -66, 0, 16), Text = "@" .. LocalPlayer.Name,
+        TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, FontFace = Body(), TextSize = 13, TextColor3 = Theme.Muted, Parent = Profile })
+    New("Frame", { BackgroundColor3 = Theme.Line, BorderSizePixel = 0, Size = UDim2.new(1, 0, 0, 1), LayoutOrder = -1, Parent = Card })
     local Row = New("Frame", { BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 16), LayoutOrder = 1, Parent = Card })
     Panel.Badge = New("TextLabel", { BackgroundTransparency = 1, Size = UDim2.new(1, -80, 1, 0), Text = "STATUS", TextXAlignment = Enum.TextXAlignment.Left,
         TextColor3 = Theme.Muted, FontFace = Body(Enum.FontWeight.Medium), TextSize = 12, Parent = Row })
@@ -3275,12 +3282,6 @@ local function BuildPanel()
     local Track = New("Frame", { BackgroundColor3 = Theme.Track, Size = UDim2.new(1, 0, 0, 4), LayoutOrder = 4, Parent = Card }, { Corner(2) })
     Panel.Fill = New("Frame", { BackgroundColor3 = Theme.Text, Size = UDim2.new(0, 0, 1, 0), Parent = Track }, { Corner(2) })
     Panel.Next = Label({ LayoutOrder = 5, TextSize = 14, TextColor3 = Theme.Dim, Parent = Card })
-
-    -- gained since Start farm
-    local Gains = CardFrame({ LayoutOrder = 4, Parent = Main })
-    Title("ได้ไปแล้ว", Gains)
-    Panel.Gains = Label({ LayoutOrder = 1, TextSize = 14, LineHeight = 1.15, Parent = Gains })
-    Panel.Log = Label({ LayoutOrder = 2, TextSize = 13, TextColor3 = Theme.Muted, Parent = Gains })
 
     Gui.Parent = Parent
     Panel.Gui = Gui
@@ -3316,14 +3317,7 @@ local function RenderPanel()
     Panel.Next.Text = Status.Plan ~= "" and (Gray("ต่อไป  ") .. Escape(Status.Plan)) or ""
     Panel.Next.Visible = Status.Plan ~= ""
 
-    local Gains = { }
-    for _, Line in ipairs(Status.Gains) do table.insert(Gains, "• " .. Escape(Line)) end
-    Panel.Gains.Text = #Gains > 0 and table.concat(Gains, "\n") or Gray("กำลังโหลด...")
-
-    local Log = { }
-    for I = 1, math.min(#Status.Log, 4) do table.insert(Log, Escape(Status.Log[I])) end
-    Panel.Log.Text = table.concat(Log, "\n")
-    Panel.Log.Visible = #Log > 0
+    Panel.Who.Text = "@" .. LocalPlayer.Name .. (Status.Main and ("  ·  " .. Status.Main) or "")
 end
 
 ---- ============ Performance (FPS boost / white screen) ============ ----
