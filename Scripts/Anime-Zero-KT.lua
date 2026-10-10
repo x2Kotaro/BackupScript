@@ -96,6 +96,7 @@ local Config = {
         Skills     = true,
         Ultimate   = "Boss",  -- "Boss" = only on a boss, true = whenever charged, false = never
         CollectCash = false,  -- walk over to cash drops after a wave (off: go straight on)
+        HealBelow  = 40,  -- % HP: below it pick up the health drops kept back (0 = the game's own pickup)
         TagTeam    = true,
         Losses     = 2,   -- losses in a row that block a stage...
         Unblock    = 10,  -- ...until the main character gains this many levels
@@ -1934,6 +1935,10 @@ end
 local function LoadBattle()
     local Scripts = LocalPlayer:WaitForChild("PlayerScripts", 10)
     Battle.Controller = Scripts and SafeRequire(Scripts, "game", "controllers", "characterController")
+    Battle.Input = Scripts and SafeRequire(Scripts, "global", "controllers", "inputController")
+    Battle.Rewards = SafeRequire(ReplicatedStorage, "game", "packets", "rewardPackets")
+    Battle.Sukuna = SafeRequire(ReplicatedStorage, "game", "packets", "sukunaPackets")
+    Battle.CharacterInfo = SafeRequire(ReplicatedStorage, "global", "constants", "characters")
     Battle.Enemies = SafeRequire(ReplicatedStorage, "game", "stores", "enemyStore")
     Battle.Drops = SafeRequire(ReplicatedStorage, "game", "stores", "dropStore")
     Battle.Run = SafeRequire(ReplicatedStorage, "game", "stores", "runStore")
@@ -1971,11 +1976,14 @@ local function IsBoss(Enemy)
     return Data and Data.boss == true or false
 end
 
--- enemies worth hitting: Shadow Gate keeps Igris on his throne (untouchable) until
--- his minions are dead -> hidden while any minion lives
+-- enemies worth hitting (same as the hub): Shadow Gate keeps Igris on his throne from the
+-- start (full health, no damage through waves 0-2) -> hidden until the last wave, and even
+-- then his minions (soldiers / knights / oath knights) go first
 function Battle.Targets()
     local All = Battle.Enemies.store.state:getAll()
     if workspace:GetAttribute("Mode") ~= "sololevelingraid" then return All end
+    local State = Battle.Run and Battle.Run.store and Battle.Run.store.state
+    local Wave, Waves = tonumber(State and Read(State.wave)) or 0, tonumber(State and Read(State.waveCount)) or 0
     local Out, Minions = { }, false
     for Id, Enemy in pairs(All) do
         local _, Base = EnemyData(Enemy)
@@ -1984,7 +1992,8 @@ function Battle.Targets()
             if (Read(Enemy.health) or 0) > 0 then Minions = true end
         end
     end
-    return Minions and Out or All
+    if Minions or Waves == 0 or Wave < Waves then return Out end
+    return All
 end
 
 -- Shadow Gate events: Break the Oath (kill oath knights in time) / System quest targets
@@ -1994,6 +2003,7 @@ function Battle.Priority()
     if workspace:GetAttribute("RaidQuestState") == "active" then
         local Goal = tostring(workspace:GetAttribute("RaidQuestGoal") or ""):lower()
         if Goal:find("blood%-red knight") then return { soloKnight = true } end
+        if Goal:find("igris") and Goal:find("health") then return { soloIgris = true, soloIgrisShadow = true } end
     end
 end
 
@@ -2256,7 +2266,32 @@ local function PlaceFooter(Hrp, Humanoid)
     Footer.CFrame = CFrame.new(Hrp.Position - Vector3.new(0, Hrp.Size.Y / 2 + Legs + Footer.Size.Y / 2, 0))
 end
 
--- every frame: go to the override spot, else orbit the target and look at it
+-- centre of the pack around a point (every live target within 14 studs)
+local function ClusterCenter(Around)
+    if not Around then return nil end
+    local Sum, Count = Vector3.zero, 0
+    for Id, Enemy in pairs(Battle.Targets()) do
+        local Position = (Read(Enemy.health) or 0) > 0 and EnemyPosition(Id, Enemy)
+        if Position and (Position - Around).Magnitude <= 14 then Sum, Count = Sum + Position, Count + 1 end
+    end
+    return Count > 0 and Sum / Count or Around
+end
+
+-- hit a boss from above: feet + its tallest attack box + 5, at most +20 (M1 misses from +25.8)
+local function BossSafeY(Enemy)
+    local Feet = Read(Enemy.position)
+    local Data = EnemyData(Enemy)
+    if typeof(Feet) ~= "Vector3" then return nil end
+    local Top = nil
+    for _, Attack in pairs(Data and type(Data.attacks) == "table" and Data.attacks or { }) do
+        if typeof(Attack.size) == "Vector3" then Top = math.max(Top or 0, Attack.size.Y) end
+    end
+    return Top and Feet.Y + math.min(Top + 5, 20) or nil
+end
+
+-- every frame (same as the hub): go to the override spot, else orbit the target and look at it.
+-- Silent aim: while a skill goes off, stand 8 studs beside the pack centre at the same height
+-- facing it flat (19 hits on 8 enemies vs ~1 looking straight down); bosses are hit from above
 local function MoveStep(Dt)
     local Humanoid, Hrp = Alive()
     if not Hrp then return end
@@ -2268,8 +2303,18 @@ local function MoveStep(Dt)
         local F = Config.Farm
         Battle.Angle = (Battle.Angle + Dt * (tonumber(F.Speed) or 10) * 0.6) % (math.pi * 2)
         Goal = Battle.TargetPosition + Vector3.new(math.cos(Battle.Angle) * F.Radius, F.Height, math.sin(Battle.Angle) * F.Radius)
+        if Battle.SafeY and Goal.Y < Battle.SafeY then Goal = Vector3.new(Goal.X, Battle.SafeY, Goal.Z) end
+        local Pose = not Battle.TargetBoss and Battle.Aim
+        if Pose and typeof(Pose.Center) == "Vector3" and os.clock() <= Pose.Until then
+            local Flat = (Hrp.Position - Pose.Center) * Vector3.new(1, 0, 1)
+            if Flat.Magnitude < 0.5 then Flat = Hrp.CFrame.LookVector * Vector3.new(-1, 0, -1) end
+            if Flat.Magnitude < 0.1 then Flat = Vector3.new(0, 0, 1) end
+            Goal = Vector3.new(Pose.Center.X, Goal.Y, Pose.Center.Z) + Flat.Unit * 8
+            Face = Vector3.new(Pose.Center.X, Goal.Y, Pose.Center.Z)
+        else
+            Face, Aim = Battle.TargetPosition, true
+        end
         Goal = DodgeGoal(Goal)
-        Face, Aim = Battle.TargetPosition, true
     end
     Battle.Moving = Goal ~= nil
     if not Goal then
@@ -2279,7 +2324,7 @@ local function MoveStep(Dt)
 
     local Flat = Hrp.CFrame.LookVector * Vector3.new(1, 0, 1)
     if Flat.Magnitude < 0.1 then Flat = Vector3.new(0, 0, -1) end
-    if Aim and (Face - Goal).Magnitude > 0.5 then
+    if Aim and Face and (Face - Goal).Magnitude > 0.5 then
         local Direction = (Face - Goal).Unit
         Hrp.CFrame = CFrame.lookAt(Goal, Face, math.abs(Direction.Y) > 0.98 and Flat.Unit or Vector3.yAxis)
     else
@@ -2289,6 +2334,69 @@ local function MoveStep(Dt)
     end
     Hrp.AssemblyLinearVelocity = Vector3.zero
     PlaceFooter(Hrp, Humanoid)
+end
+
+-- health drops (same as the hub): the game picks up every drop within 12 studs and fires
+-- rewardPackets.recoverDrop(id), wasting them at full HP -> hold them back until HP is below
+-- Farm.HealBelow, then send recoverDrop for each one directly (the server takes it from 22-33 studs)
+local function NeedHeal(Humanoid)
+    local HealAt = tonumber(Config.Farm.HealBelow) or 0
+    return Humanoid ~= nil and HealAt > 0 and (Humanoid.Health / math.max(Humanoid.MaxHealth, 1)) * 100 < HealAt
+end
+
+local function SendDrop(Id)
+    local Packet = Battle.Rewards and Battle.Rewards.recoverDrop
+    local Fire = Battle.OriginalDropFire or (Packet and Packet.fire)
+    if Fire then Fire(Packet, Id) end
+end
+
+-- game patches while we run, undone by KaitanCleanup:
+--   inputController.isBlocked: keep fighting with the Esc menu / settings open (end screen still blocks)
+--   recoverDrop: keep health drops for later (above)
+--   Sukuna arrowLanded: land the arrow on the pack centre (the server accepts it, 1020 damage)
+function Battle.Patch()
+    local Input = Battle.Input
+    if Input and not Battle.OriginalBlocked and type(Input.isBlocked) == "function" then
+        local Original = Input.isBlocked
+        Battle.OriginalBlocked = Original
+        Input.isBlocked = function(...)
+            if not Live() then return Original(...) end
+            local Gui = LocalPlayer:FindFirstChild("PlayerGui")
+            return Gui ~= nil and Gui:GetAttribute("EndScreenActive") == true
+        end
+    end
+    local Drop = Battle.Rewards and Battle.Rewards.recoverDrop
+    if Drop and not Battle.OriginalDropFire and type(Drop.fire) == "function" then
+        local Original = Drop.fire
+        Battle.OriginalDropFire = Original
+        rawset(Drop, "fire", function(Self, Id, ...)
+            if Live() and (tonumber(Config.Farm.HealBelow) or 0) > 0 then
+                local Entry = Battle.Drops and Battle.Drops.store.state:get(Id)
+                local Humanoid = Alive()
+                if Entry and Read(Entry.kind) == "health" and Humanoid and not NeedHeal(Humanoid) then return end
+            end
+            return Original(Self, Id, ...)
+        end)
+    end
+    local Arrow = Battle.Sukuna and Battle.Sukuna.arrowLanded
+    if Arrow and not Battle.OriginalArrowFire and type(Arrow.fire) == "function" then
+        local Original = Arrow.fire
+        Battle.OriginalArrowFire = Original
+        rawset(Arrow, "fire", function(Self, Position, ...)
+            local Center = Battle.AimCenter or Battle.TargetPosition
+            if Live() and typeof(Center) == "Vector3" then return Original(Self, Center, ...) end
+            return Original(Self, Position, ...)
+        end)
+    end
+end
+
+function Battle.Unpatch()
+    if Battle.Input and Battle.OriginalBlocked then Battle.Input.isBlocked = Battle.OriginalBlocked end
+    local Drop = Battle.Rewards and Battle.Rewards.recoverDrop
+    if Drop and Battle.OriginalDropFire then rawset(Drop, "fire", nil) end
+    local Arrow = Battle.Sukuna and Battle.Sukuna.arrowLanded
+    if Arrow and Battle.OriginalArrowFire then rawset(Arrow, "fire", nil) end
+    Battle.OriginalBlocked, Battle.OriginalDropFire, Battle.OriginalArrowFire = nil, nil, nil
 end
 
 local function SetHold(On)
@@ -2355,9 +2463,11 @@ local function TagTeam(Store, Character, InRange)
     end
 end
 
+-- one battle tick (0.1 s), the hub's farm logic for every stage plus the carry / Jinwoo rules
 local function BattleStep()
     local Humanoid, Hrp = Alive()
     local State = Battle.Run.store.state
+    Battle.Expecting = false
     local Me = nil
     pcall(function() Me = State.participants:get(tostring(LocalPlayer.UserId)) end)
     local RunStatus = Read(State.status)
@@ -2365,45 +2475,88 @@ local function BattleStep()
 
     if not (Humanoid and Running) then
         Battle.ProgressAt = os.clock()
-        Battle.TargetPosition, Battle.Override, Battle.OverrideFace = nil, nil, nil
+        Battle.TargetPosition, Battle.Override, Battle.OverrideFace, Battle.Aim = nil, nil, nil, nil
         -- a raid stays "waiting" until we walk into its zone
         if Humanoid and RunStatus == "waiting" then Battle.Override = ZonePoint(Hrp) end
         SetHold(false)
         return
     end
 
-    Battle.Dangers = Dangers()
-    local TargetId, Target = PickTarget(Hrp)
-    Battle.TargetPosition = Target and EnemyPosition(TargetId, Target) or nil
-    Battle.Override, Battle.OverrideFace = nil, nil
-
-    local Count = 0
-    for _, Enemy in pairs(Battle.Enemies.store.state:getAll()) do
-        if (Read(Enemy.health) or 0) > 0 then Count = Count + 1 end
+    -- low HP: send recoverDrop for the health drops held back; still there after 1.5 s = go to it
+    local Heal = nil
+    Battle.HealFired = Battle.HealFired or { }
+    if NeedHeal(Humanoid) then
+        local Now = os.clock()
+        for Id, Drop in pairs(Battle.Drops.store.state:getAll()) do
+            if Read(Drop.kind) == "health" then
+                local FiredAt = Battle.HealFired[Id]
+                if not FiredAt or Now - FiredAt > 1 then
+                    if not FiredAt then Battle.HealFired[Id] = Now end
+                    pcall(SendDrop, Id)
+                end
+                if FiredAt and Now - FiredAt > 1.5 and not Heal then Heal = Read(Drop.position) end
+            end
+        end
+    else
+        table.clear(Battle.HealFired)
     end
+
+    -- let the wave finish spawning first: runStore.remaining counts the whole wave, enemies come
+    -- out 0.2-0.5 s apart -> alive < remaining = still spawning; no new one for 1.2 s = all out
+    -- (Bathtub floor 3 sends one at a time after the last one dies)
+    local Count, Seen = 0, { }
+    Battle.Seen = Battle.Seen or { }
+    for Id, Enemy in pairs(Battle.Targets()) do
+        if (Read(Enemy.health) or 0) > 0 then
+            Count = Count + 1
+            Seen[Id] = true
+            if not Battle.Seen[Id] then Battle.LastSpawn = os.clock() end
+        end
+    end
+    Battle.Seen = Seen
     local Remaining = tonumber(Read(State.remaining)) or 0
+    local Spawning = Count > 0 and Count < Remaining and os.clock() - (Battle.LastSpawn or 0) < 1.2
     local Key = tostring(Read(State.area)) .. ":" .. Remaining .. ":" .. Count
     if Key ~= Battle.ProgressKey then Battle.ProgressKey, Battle.ProgressAt = Key, os.clock() end
 
     -- carried child: hide above the map while the mother clears it
     if Carry.Child() and Carry.MotherHere(State) then
-        Battle.TargetPosition, Battle.OverrideFace = nil, nil
+        Battle.TargetPosition, Battle.OverrideFace, Battle.Aim = nil, nil, nil
         Battle.HideSpot = Battle.HideSpot or (Hrp.Position + Vector3.new(0, 120, 0))
         Battle.Override = Battle.HideSpot
-        Battle.Expecting = false
         SetHold(false)
         return Say("Hide", ("Hiding while carrier clears  ·  wave %s/%s  enemies %d"):format(tostring(Read(State.wave)), tostring(Read(State.waveCount)), Count))
     end
 
+    Battle.Dangers = Dangers()
+    local TargetId, Target
+    if Spawning then
+        -- wait at the nearest one: no tagging, no hits, no skills yet
+        local Best = math.huge
+        Battle.Gathering = false
+        for Id, Enemy in pairs(Battle.Targets()) do
+            local Position = (Read(Enemy.health) or 0) > 0 and EnemyPosition(Id, Enemy)
+            local Distance = Position and (Position - Hrp.Position).Magnitude or math.huge
+            if Distance < Best then TargetId, Target, Best = Id, Enemy, Distance end
+        end
+    else
+        TargetId, Target = PickTarget(Hrp)
+    end
+    Battle.Spawning = Spawning
+    Battle.TargetPosition = Target and EnemyPosition(TargetId, Target) or nil
+    Battle.TargetBoss = Target ~= nil and IsBoss(Target)
+    Battle.SafeY = Battle.TargetBoss and BossSafeY(Target) or nil
+
+    local Cash = Config.Farm.CollectCash and not Target and NearestCash(Hrp)
+    Battle.Override, Battle.OverrideFace = Heal or Cash or nil, nil
+
+    -- enemies gone: break the next area's wall / take the Bathtub elevator / walk into the zone
     local Breaking = false
-    if not Target then
-        local Cash = Config.Farm.CollectCash and NearestCash(Hrp)
+    if not Target and not Battle.Override then
         local Stand, Face = FindRubble(Hrp)
         local Elevator = ElevatorPrompt()
         local Wave, Waves = tonumber(Read(State.wave)) or 0, tonumber(Read(State.waveCount)) or 0
-        if Cash then
-            Battle.Override = Cash
-        elseif Stand then
+        if Stand then
             Battle.Override, Battle.OverrideFace, Breaking = Stand, Face, true
         elseif Elevator and Count == 0 and Remaining == 0 and Waves > 0 and Wave >= Waves then
             local Spot = Elevator.Parent.Position
@@ -2421,17 +2574,21 @@ local function BattleStep()
         end
     end
     Say("Farm", ("Area %s  wave %s/%s  enemies %d%s"):format(tostring(Read(State.area)), tostring(Read(State.wave)), tostring(Read(State.waveCount)), Count,
-        Breaking and "  (breaking wall)" or (Battle.Gathering and "  (gathering)" or (Target and IsBoss(Target) and "  (boss)" or ""))))
+        Breaking and "  (breaking wall)" or Spawning and "  (spawning)" or Battle.Gathering and "  (gathering)" or Battle.TargetBoss and "  (boss)" or ""))
 
+    -- M1 held through the game's controller; released while a switch waits (every swing pushes
+    -- the skill timer and the game drops performSwitch)
     local Switching = Battle.SwitchPending and os.clock() - Battle.SwitchPending < 1.5
-    SetHold(not Switching and ((Target ~= nil and not Battle.Override) or Breaking))
-    Battle.Expecting = Target ~= nil and Battle.TargetPosition ~= nil and (Battle.TargetPosition - Hrp.Position).Magnitude < 25
-    if not Target then return end
+    local WantHold = not Switching and ((Target ~= nil and not Battle.Override and not Spawning) or Breaking)
+    SetHold(WantHold)
+    Battle.Expecting = WantHold and Target ~= nil and not Breaking and Battle.TargetPosition ~= nil
+        and (Battle.TargetPosition - Hrp.Position).Magnitude < 25
+    if not Target or Spawning then return end
 
-    local InRange = Battle.TargetPosition and (Battle.TargetPosition - Hrp.Position).Magnitude < 25
     local Store = Battle.Players.getLocalPlayerStore()
     local Character = Store and Read(Store.state.character)
     if not (Store and Character) then return end
+    local InRange = Battle.TargetPosition and (Battle.TargetPosition - Hrp.Position).Magnitude < 25
 
     -- switch confirmed: the new character does not swing until M1 is pressed again
     if Battle.SwitchFrom and Character ~= Battle.SwitchFrom then
@@ -2441,14 +2598,66 @@ local function BattleStep()
         Battle.CastCount, Battle.LastCast = 0, os.clock()
     end
 
-    -- skills wait for the pack: tagging only needs a hit
-    if InRange and not Battle.SwitchPending and not Battle.Gathering then
-        local Ult = Config.Farm.Ultimate
-        if Ult == true or (Ult == "Boss" and IsBoss(Target)) then pcall(Battle.Controller.performSkill, 4) end
-        if Config.Farm.Skills then
+    -- tagging the pack together: skills and the ultimate wait for it (Jinwoo still switches in)
+    if Battle.Gathering then
+        if Owns("sung_jinwoo") then TagTeam(Store, Character, InRange) end
+        return
+    end
+    Battle.AimCenter = ClusterCenter(Battle.TargetPosition) -- where the Sukuna arrow lands
+
+    -- skills (same as the hub): a ready skill -> step beside the pack (MoveStep), give the server
+    -- 0.12 s to see it, cast, hold the pose for the skill's processingTime (ult 1 s), then back.
+    -- Not while a switch waits (a fresh cast keeps the old move running and the switch never fires)
+    local Holding = Battle.SwitchPending ~= nil
+    local Ult = Config.Farm.Ultimate
+    local WantUlt = InRange and not Holding and (Ult == true or (Ult == "Boss" and Battle.TargetBoss))
+    local WantSkill = Config.Farm.Skills and InRange and not Holding
+    local Now = os.clock()
+    local Aim = Battle.Aim
+    if Aim and Now > Aim.Until then
+        -- posed and nothing went off (immune boss / stunned / ult not full) = rest 2 s
+        if not Aim.Cast and not Battle.TargetBoss then Battle.AimRest = Now + 2 end
+        Aim, Battle.Aim = nil, nil
+    end
+    -- a slot the game calls ready that will not fire (Sukuna's first skill) rests 3 s
+    Battle.NoCast = Battle.NoCast or { }
+    local Ready = false
+    if WantUlt or WantSkill then
+        for Slot = 1, 4 do
+            if (Slot == 4 and WantUlt or Slot < 4 and WantSkill) and (Battle.NoCast[Slot] or 0) < Now and SkillReady(Store, Character, Slot) then
+                Ready = true
+                break
+            end
+        end
+    end
+    -- bosses: no pose (hit from above), cast right away
+    if Ready and not Aim and (Battle.TargetBoss or Now >= (Battle.AimRest or 0)) then
+        Battle.Aim = { Center = Battle.AimCenter or Battle.TargetPosition, Since = Battle.TargetBoss and Now - 1 or Now, Until = Now + 0.6 }
+    elseif Aim then
+        Aim.Center = Battle.AimCenter or Battle.TargetPosition or Aim.Center
+    end
+    Aim = Battle.Aim
+    if Aim and Now - Aim.Since >= 0.12 then
+        local Info = Battle.CharacterInfo and Battle.CharacterInfo.charactersByName and Battle.CharacterInfo.charactersByName[Character]
+        local function Cast(Slot)
+            local Ok, Used = pcall(Battle.Controller.performSkill, Slot)
+            if not (Ok and Used) then
+                -- the previous move still playing is a normal miss, not a dead slot
+                if os.clock() > (Battle.CastBusy or 0) and SkillReady(Store, Character, Slot) then Battle.NoCast[Slot] = os.clock() + 3 end
+                return false
+            end
+            Battle.NoCast[Slot] = nil
+            Aim.Cast = true
+            local Skill = Info and Info.skills and Info.skills[Slot]
+            local Busy = tonumber(Skill and Skill.processingTime) or 1.5
+            Battle.CastBusy = os.clock() + Busy
+            Aim.Until = math.max(Aim.Until, os.clock() + (Slot == 4 and 1 or math.clamp(Busy, 0.5, 3)))
+            return true
+        end
+        if WantUlt then Cast(4) end
+        if WantSkill then
             for Slot = 1, 3 do
-                local Ok, Used = pcall(Battle.Controller.performSkill, Slot)
-                if Ok and Used then
+                if Cast(Slot) then
                     Battle.LastCast, Battle.CastCount = os.clock(), (Battle.CastCount or 0) + 1
                     break
                 end
@@ -2580,6 +2789,7 @@ local function MatchMain()
         end)
     end
     if not LoadBattle() then return Say("Error", "match modules not found") end
+    pcall(Battle.Patch)
     LoadCharacterData()
     Grow.Load()
     UpdateSlotStatus()
@@ -3168,6 +3378,7 @@ getgenv().KaitanCleanup = function()
     for _, Connection in ipairs(SessionConnections) do pcall(function() Connection:Disconnect() end) end
     for _, Hook in ipairs(Join.Hooks) do Unhook(Hook) end
     if Battle.HitHook then Unhook(Battle.HitHook) end
+    pcall(Battle.Unpatch)
     if Battle.Controller and Battle.Holding then pcall(Battle.Controller.setTouchHeld, "Attack", false) end
     if Battle.Footer then pcall(function() Battle.Footer:Destroy() end) end
     if Panel.Gui then pcall(function() Panel.Gui:Destroy() end) end
