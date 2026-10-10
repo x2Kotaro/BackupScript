@@ -1557,16 +1557,25 @@ local function EquipTeam()
     for I, Entry in ipairs(List) do
         if Entry.Id == Main and I == 2 then List[1], List[2] = List[2], List[1] end
     end
-    -- Sung Jinwoo owned: he leads (the match plays only him)
+    -- Sung Jinwoo owned: he is always team slot 1, so every match starts as him (user 2026-10-10)
+    local Jinwoo = false
     for I, Entry in ipairs(List) do
-        if Entry.Id == "sung_jinwoo" and I > 1 then table.insert(List, 1, table.remove(List, I)) break end
+        if Entry.Id == "sung_jinwoo" then
+            Jinwoo = true
+            if I > 1 then table.insert(List, 1, table.remove(List, I)) end
+            break
+        end
     end
-    local Equipped = Data.EquippedCharacterSlots or { }
-    local Want = { List[1] and List[1].Slot, List[2] and List[2].Slot }
-    local Now = { tonumber(Equipped.Slot1), tonumber(Equipped.Slot2) }
-    if Want[1] == Now[2] or Want[2] == Now[1] then Want[1], Want[2] = Want[2], Want[1] end
+    local function Now()
+        local Equipped = (AccountTable() or Data).EquippedCharacterSlots or { }
+        return { tonumber(Equipped.Slot1), tonumber(Equipped.Slot2) }
+    end
+    local Want, Current = { List[1] and List[1].Slot, List[2] and List[2].Slot }, Now()
+    -- otherwise either order is fine: skip a swap that changes nothing
+    if not Jinwoo and (Want[1] == Current[2] or Want[2] == Current[1]) then Want[1], Want[2] = Want[2], Want[1] end
     for GameSlot = 1, 2 do
-        if Want[GameSlot] and Now[GameSlot] ~= Want[GameSlot] then
+        -- equipping a unit already in the other team slot swaps the two (tested 2026-10-10)
+        if Want[GameSlot] and Now()[GameSlot] ~= Want[GameSlot] then
             Say("Team", ("Equipping slot %d -> team %d"):format(Want[GameSlot], GameSlot))
             Request("equipCharacterSlot", "characterSlotActionResult", { slot = Want[GameSlot], gameSlot = GameSlot })
             task.wait(0.5)
