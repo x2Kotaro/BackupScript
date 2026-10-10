@@ -2626,6 +2626,12 @@ local function BattleStep()
         if not Aim.Cast and not Battle.TargetBoss then Battle.AimRest = Now + 2 end
         Aim, Battle.Aim = nil, nil
     end
+    -- Jinwoo's ult key casts its bonus skill (Arise: Kaisel, 11.4 s) while the player attribute
+    -- BonusUntil runs after Monarch's Domain (characterController.performSkill) - never wanted
+    -- (user 2026-10-10)
+    if WantUlt and Character == "sung_jinwoo" and workspace:GetServerTimeNow() < (tonumber(LocalPlayer:GetAttribute("BonusUntil")) or 0) then
+        WantUlt = false
+    end
     -- a slot the game calls ready that will not fire (Sukuna's first skill) rests 3 s
     Battle.NoCast = Battle.NoCast or { }
     local Ready = false
