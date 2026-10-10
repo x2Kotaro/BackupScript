@@ -2389,6 +2389,11 @@ local function EndStep()
             local Next = false
             pcall(function() Next = Read(State.canNext) == true and Saved.PlanKey:find("progress") ~= nil end)
             Battle.Action = Work and 3 or (Next and 2 or 1)
+            -- Sung Jinwoo owned = strong enough (user 2026-10-10): Retry straight away; the lobby
+            -- (spending, placing, stage change) only on the regular visit every Lobby.Every matches
+            if Owns("sung_jinwoo", Data) and (Saved.SinceLobby or 0) < (Config.Lobby.Every or 10) then
+                Battle.Action, Work = 1, nil
+            end
             -- mother with children in this run: Retry together (Leave only for the regular lobby visit)
             if Carry.Role() == "mother" and Carry.KidsHere(State) > 0 and (Saved.SinceLobby or 0) < (Config.Lobby.Every or 10) then
                 Battle.Action, Work = 1, "carrying"
