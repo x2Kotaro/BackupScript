@@ -725,6 +725,16 @@ function Carry.Pending()
     return List
 end
 
+-- every kaitan of the group has Sung Jinwoo: the carrier is free to farm for itself
+function Carry.AllDone()
+    local Info = Carry.Live
+    if not (Info and Info.role == "mother" and type(Info.children) == "table" and #Info.children > 0) then return false end
+    for _, Kid in ipairs(Info.children) do
+        if type(Kid) ~= "table" or not Kid.done then return false end
+    end
+    return true
+end
+
 -- group ids as last seen (kept on disk: a match boots before its first report)
 function Carry.ChildIds()
     local Info = Carry.Info()
@@ -1869,15 +1879,16 @@ local function LobbyMain()
                 Step = ChildStep
             elseif #Carry.Pending() > 0 then
                 Step = MotherStep
-            elseif Carry.Role() == "mother" then
-                -- a carrier only carries (user 2026-10-10: it kept farming with no goal)
+            elseif Carry.Role() == "mother" and not Carry.AllDone() then
+                -- kaitan still need Jinwoo but none is online: wait for them instead of farming
+                -- with no goal (user 2026-10-10); once all of them are done the carrier farms its own plan
                 Step = function()
-                    local Kids = Carry.Live and type(Carry.Live.children) == "table" and Carry.Live.children or { }
                     local Left = 0
-                    for _, Kid in ipairs(Kids) do if type(Kid) == "table" and not Kid.done then Left = Left + 1 end end
+                    for _, Kid in ipairs(Carry.Live and type(Carry.Live.children) == "table" and Carry.Live.children or { }) do
+                        if type(Kid) == "table" and not Kid.done then Left = Left + 1 end
+                    end
                     if Join.ClientStatus == "inQuque" then pcall(function() Lobby.Packets.leaveQuque:fire() end) end
-                    Say("Carry", #Kids > 0 and Left == 0 and "แบกครบแล้ว - ไก่ทุกตัวได้ Sung Jinwoo แล้ว"
-                        or ("รอไก่ออนไลน์ (%d ตัวยังไม่ได้ Jinwoo)"):format(Left))
+                    Say("Carry", ("รอไก่ออนไลน์ (%d ตัวยังไม่ได้ Jinwoo)"):format(Left))
                 end
             end
             local Ok, Err = pcall(Step, RoomStore.namespace)
@@ -2423,8 +2434,8 @@ local function EndStep()
                 Battle.Action, Work = 1, "carrying"
             end
             -- a run without the group (started before it was set up): back to the lobby to group up
-            if Carry.Role() == "mother" and Carry.KidsHere(State) == 0 then
-                Battle.Action, Work = 3, #Carry.Pending() > 0 and "grouping" or "nobody to carry"
+            if Carry.Role() == "mother" and Carry.KidsHere(State) == 0 and not Carry.AllDone() then
+                Battle.Action, Work = 3, #Carry.Pending() > 0 and "grouping" or "waiting for kaitan"
             elseif Carry.Child() and not Carry.MotherHere(State) and Carry.Mother() and Carry.Mother().online then
                 Battle.Action, Work = 3, "join carrier"
             end
