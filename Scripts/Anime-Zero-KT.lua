@@ -128,7 +128,7 @@ local Config = {
     Trait = { Keep = { "Supernova", "Deadeye", "Ferocity" } },
     Gear  = true,     -- equip the best damage title + accessories already owned
     -- accessories (all 14 are crafted from Story Hxh materials): craft the best piece of every slot
-    -- that is on - most Damage %, then tier, then the other buffs. Materials an evolve or the next
+    -- that is on - highest tier, then most Damage %, then the other buffs. Materials an evolve or the next
     -- Igris level still needs are never spent; Farm = the planner farms what a craft is missing
     -- (after the evolves / Igris)
     Craft = { Enabled = true, Farm = true, Head = true, Face = true, Neck = true, Back = true },
@@ -637,7 +637,8 @@ do
         return List
     end
 
-    -- accessory worth: Damage % first, then tier, then every other buff %
+    -- accessory worth: tier first (user 2026-10-11: the Legendary Blast Archer Wings on the back,
+    -- not the T3 Dark Captain Wings with 1% more damage), then Damage %, then every other buff %
     function Grow.GearScore(Info)
         local Damage, Total = 0, 0
         for _, Buff in ipairs(type(Info) == "table" and Info.Buffs or { }) do
@@ -645,7 +646,7 @@ do
             Total = Total + Value
             if tostring(Buff.Type) == "Damage" then Damage = Damage + Value end
         end
-        return Damage * 1000 + (tonumber(Info and Info.Tier) or 0) * 100 + Total
+        return (tonumber(Info and Info.Tier) or 0) * 100000 + Damage * 1000 + Total
     end
 
     -- best piece per slot (Head / Face / Neck / Back) with its recipe: { [slot] = { Id, Key, Name, Recipe } }
