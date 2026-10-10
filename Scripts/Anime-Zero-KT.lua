@@ -1537,7 +1537,7 @@ local function EquipTeam()
     for I, Entry in ipairs(List) do
         if Entry.Id == Main and I == 2 then List[1], List[2] = List[2], List[1] end
     end
-    -- Sung Jinwoo fights alone once owned (user 2026-10-10): he leads, the match never tags out
+    -- Sung Jinwoo owned: he leads (the match does no tag team then)
     for I, Entry in ipairs(List) do
         if Entry.Id == "sung_jinwoo" and I > 1 then table.insert(List, 1, table.remove(List, I)) break end
     end
@@ -2196,12 +2196,11 @@ local function TagTeam(Store, Character, InRange)
         return
     end
     local Mates = TeamMates(Character)
-    -- Sung Jinwoo does not tag out; anyone else tags into him as soon as the switch is ready
-    if #Mates == 0 or Character == "sung_jinwoo" then
+    -- Sung Jinwoo owned = no tag team at all (user 2026-10-10); he leads the team (EquipTeam)
+    if #Mates == 0 or Owns("sung_jinwoo") then
         Battle.SwitchPending = nil
         return
     end
-    local ToJinwoo = table.find(Mates, "sung_jinwoo") ~= nil
     local AllCooling = true
     for Slot = 1, 3 do
         if SkillReady(Store, Character, Slot) then AllCooling = false break end
@@ -2217,7 +2216,7 @@ local function TagTeam(Store, Character, InRange)
         MateSkills = math.max(MateSkills, Count)
     end
     local UsedUp = AllCooling or (InRange and (Battle.CastCount or 0) >= 1 and os.clock() - (Battle.LastCast or 0) > 1)
-    if ((UsedUp and MateSkills >= 1) or ToJinwoo or Battle.SwitchPending) and SwitchReady then
+    if ((UsedUp and MateSkills >= 1) or Battle.SwitchPending) and SwitchReady then
         if not Battle.SwitchPending then
             Battle.SwitchPending = os.clock()
         elseif SkillIdle() and os.clock() - (Battle.SwitchAt or 0) > 0.3 then
