@@ -770,9 +770,13 @@ end
 
 function Carry.KidsHere(State)
     local Count = 0
+    local Done = { }
+    for _, Kid in ipairs(Carry.Live and type(Carry.Live.children) == "table" and Carry.Live.children or { }) do
+        if type(Kid) == "table" and Kid.done then Done[tostring(Kid.id)] = true end
+    end
     for _, Id in ipairs(Carry.ChildIds()) do
         local Ok, Entry = pcall(function() return State.participants:get(Id) end)
-        if Ok and Entry ~= nil then Count = Count + 1 end
+        if Ok and Entry ~= nil and not Done[Id] then Count = Count + 1 end
     end
     return Count
 end
@@ -1865,6 +1869,16 @@ local function LobbyMain()
                 Step = ChildStep
             elseif #Carry.Pending() > 0 then
                 Step = MotherStep
+            elseif Carry.Role() == "mother" then
+                -- a carrier only carries (user 2026-10-10: it kept farming with no goal)
+                Step = function()
+                    local Kids = Carry.Live and type(Carry.Live.children) == "table" and Carry.Live.children or { }
+                    local Left = 0
+                    for _, Kid in ipairs(Kids) do if type(Kid) == "table" and not Kid.done then Left = Left + 1 end end
+                    if Join.ClientStatus == "inQuque" then pcall(function() Lobby.Packets.leaveQuque:fire() end) end
+                    Say("Carry", #Kids > 0 and Left == 0 and "แบกครบแล้ว - ไก่ทุกตัวได้ Sung Jinwoo แล้ว"
+                        or ("รอไก่ออนไลน์ (%d ตัวยังไม่ได้ Jinwoo)"):format(Left))
+                end
             end
             local Ok, Err = pcall(Step, RoomStore.namespace)
             if not Ok then Say("Join", "Error: " .. tostring(Err)) end
@@ -2409,8 +2423,8 @@ local function EndStep()
                 Battle.Action, Work = 1, "carrying"
             end
             -- a run without the group (started before it was set up): back to the lobby to group up
-            if Carry.Role() == "mother" and Carry.KidsHere(State) == 0 and #Carry.Pending() > 0 then
-                Battle.Action, Work = 3, "grouping"
+            if Carry.Role() == "mother" and Carry.KidsHere(State) == 0 then
+                Battle.Action, Work = 3, #Carry.Pending() > 0 and "grouping" or "nobody to carry"
             elseif Carry.Child() and not Carry.MotherHere(State) and Carry.Mother() and Carry.Mother().online then
                 Battle.Action, Work = 3, "join carrier"
             end
