@@ -191,9 +191,18 @@ local function TrackConnection(Connection)
     return Connection
 end
 
-local IsLobby = ReplicatedStorage:FindFirstChild("lobby") ~= nil
-local IsMatch = (not IsLobby) and ReplicatedStorage:FindFirstChild("game") ~= nil
 local LobbyPlaceId = 114574503491412
+
+-- the copy queued for the next place can start before ReplicatedStorage has replicated: one
+-- check found neither folder, the panel said "Idle" and nothing ran (user 2026-10-10, a Hu Tao
+-- Bathtub run standing still) -> wait for the place's folder
+local IsLobby, IsMatch = game.PlaceId == LobbyPlaceId, false
+for _ = 1, 120 do
+    IsLobby = IsLobby or ReplicatedStorage:FindFirstChild("lobby") ~= nil
+    IsMatch = (not IsLobby) and ReplicatedStorage:FindFirstChild("game") ~= nil
+    if IsLobby or IsMatch then break end
+    task.wait(0.5)
+end
 
 -- What the panel shows. Workers write, the main-spawned render thread reads
 -- (a thread that required a game module loses the capability to touch UI).
@@ -1528,6 +1537,10 @@ local function EquipTeam()
     for I, Entry in ipairs(List) do
         if Entry.Id == Main and I == 2 then List[1], List[2] = List[2], List[1] end
     end
+    -- Sung Jinwoo fights alone once owned (user 2026-10-10): he leads, the match never tags out
+    for I, Entry in ipairs(List) do
+        if Entry.Id == "sung_jinwoo" and I > 1 then table.insert(List, 1, table.remove(List, I)) break end
+    end
     local Equipped = Data.EquippedCharacterSlots or { }
     local Want = { List[1] and List[1].Slot, List[2] and List[2].Slot }
     local Now = { tonumber(Equipped.Slot1), tonumber(Equipped.Slot2) }
@@ -2183,10 +2196,12 @@ local function TagTeam(Store, Character, InRange)
         return
     end
     local Mates = TeamMates(Character)
-    if #Mates == 0 then
+    -- Sung Jinwoo does not tag out; anyone else tags into him as soon as the switch is ready
+    if #Mates == 0 or Character == "sung_jinwoo" then
         Battle.SwitchPending = nil
         return
     end
+    local ToJinwoo = table.find(Mates, "sung_jinwoo") ~= nil
     local AllCooling = true
     for Slot = 1, 3 do
         if SkillReady(Store, Character, Slot) then AllCooling = false break end
@@ -2202,7 +2217,7 @@ local function TagTeam(Store, Character, InRange)
         MateSkills = math.max(MateSkills, Count)
     end
     local UsedUp = AllCooling or (InRange and (Battle.CastCount or 0) >= 1 and os.clock() - (Battle.LastCast or 0) > 1)
-    if ((UsedUp and MateSkills >= 1) or Battle.SwitchPending) and SwitchReady then
+    if ((UsedUp and MateSkills >= 1) or ToJinwoo or Battle.SwitchPending) and SwitchReady then
         if not Battle.SwitchPending then
             Battle.SwitchPending = os.clock()
         elseif SkillIdle() and os.clock() - (Battle.SwitchAt or 0) > 0.3 then
