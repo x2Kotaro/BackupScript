@@ -3203,6 +3203,9 @@ local function New(Class, Props, Children)
     return Object
 end
 
+-- what the screen shows instead of this account's name (Config.HideName)
+local HiddenName = "Valkyrie On Top"
+
 local function Corner(Radius) return New("UICorner", { CornerRadius = UDim.new(0, Radius) }) end
 local function Pad(V, H)
     return New("UIPadding", { PaddingTop = UDim.new(0, V), PaddingBottom = UDim.new(0, V), PaddingLeft = UDim.new(0, H), PaddingRight = UDim.new(0, H) })
@@ -3269,7 +3272,7 @@ local function BuildPanel()
     New("ImageLabel", { Size = UDim2.fromOffset(52, 52), BackgroundColor3 = Theme.Track, BorderSizePixel = 0,
         Image = ("rbxthumb://type=AvatarHeadShot&id=%d&w=150&h=150"):format(LocalPlayer.UserId), Parent = Profile },
         { Corner(26), New("UIStroke", { Color = Theme.Line, Thickness = 1 }) })
-    New("TextLabel", { BackgroundTransparency = 1, Position = UDim2.fromOffset(66, 7), Size = UDim2.new(1, -66, 0, 20), Text = Config.HideName and "Hidden" or LocalPlayer.DisplayName,
+    New("TextLabel", { BackgroundTransparency = 1, Position = UDim2.fromOffset(66, 7), Size = UDim2.new(1, -66, 0, 20), Text = Config.HideName and HiddenName or LocalPlayer.DisplayName,
         TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, FontFace = Heading(Enum.FontWeight.SemiBold), TextSize = 17,
         TextColor3 = Theme.Text, Parent = Profile })
     Panel.Who = New("TextLabel", { BackgroundTransparency = 1, Position = UDim2.fromOffset(66, 29), Size = UDim2.new(1, -66, 0, 16), Text = "",
@@ -3320,8 +3323,8 @@ local function RenderPanel()
     Panel.Next.Text = Status.Plan ~= "" and (Gray("ต่อไป  ") .. Escape(Status.Plan)) or ""
     Panel.Next.Visible = Status.Plan ~= ""
 
-    local Handle = Config.HideName and "@hidden" or ("@" .. LocalPlayer.Name)
-    Panel.Who.Text = Handle .. (Status.Main and ("  ·  " .. Status.Main) or "")
+    local Parts = { Config.HideName and "Valkyrie Hub" or ("@" .. LocalPlayer.Name), Status.Main }
+    Panel.Who.Text = table.concat(Parts, "  ·  ")
 end
 
 ---- ============ Performance (FPS boost / white screen) ============ ----
@@ -3382,7 +3385,7 @@ function Perf.Screen(On)
     end
 end
 
--- name -> "Hidden" in every text of the game's UI (checked each second: the boss bar rewrites
+-- name -> HiddenName in every text of the game's UI (checked each second: the boss bar rewrites
 -- its damage list all the time) + the Roblox player list off
 local function Plain(Text) return (Text:gsub("[%p]", "%%%0")) end
 function Perf.HideName()
@@ -3397,7 +3400,7 @@ function Perf.HideName()
     for _, Object in ipairs(Gui:GetDescendants()) do
         if Object:IsA("TextLabel") or Object:IsA("TextButton") then
             local Text = Object.Text
-            for _, Name in ipairs(Names) do Text = Text:gsub(Name, "Hidden") end
+            for _, Name in ipairs(Names) do Text = Text:gsub(Name, HiddenName) end
             if Text ~= Object.Text then Object.Text = Text end
         end
     end
