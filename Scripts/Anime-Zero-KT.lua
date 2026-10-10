@@ -795,6 +795,16 @@ function Carry.MotherHere(State)
     return Ok and Entry ~= nil
 end
 
+-- children of the group (online, not done) that are not in this run
+function Carry.Missing(State)
+    local List = { }
+    for _, Kid in ipairs(Carry.Pending()) do
+        local Ok, Entry = pcall(function() return State.participants:get(tostring(Kid.id)) end)
+        if not (Ok and Entry ~= nil) then table.insert(List, Kid) end
+    end
+    return List
+end
+
 function Carry.KidsHere(State)
     local Count = 0
     local Done = { }
@@ -2753,8 +2763,9 @@ local function EndStep()
             if Carry.Role() == "mother" and Carry.KidsHere(State) > 0 and (Saved.SinceLobby or 0) < (Config.Lobby.Every or 10) then
                 Battle.Action, Work = 1, "carrying"
             end
-            -- a run without the group (started before it was set up): back to the lobby to group up
-            if Carry.Role() == "mother" and Carry.KidsHere(State) == 0 and #Carry.Pending() > 0 then
+            -- a kaitan of the group is not in this run (started before the group was set up, or a new
+            -- one came online while carrying the others): back to the lobby to group everyone up
+            if Carry.Role() == "mother" and #Carry.Missing(State) > 0 then
                 Battle.Action, Work = 3, "grouping"
             elseif Carry.Child() and not Carry.MotherHere(State) and Carry.Mother() and Carry.Mother().online then
                 Battle.Action, Work = 3, "join carrier"
@@ -2781,6 +2792,27 @@ local function EndStep()
     elseif MyStatus == "active" then
         Battle.Counted = nil
     end
+end
+
+-- a new kaitan came online mid-match (user 2026-10-10): the carrier it was given leaves right
+-- away to carry it - unless kaitan are already in this run (then it Leaves at the result screen,
+-- EndStep "grouping", and they follow its vote). A kaitan farming alone while its carrier is
+-- online leaves too, to be in the lobby when the carrier opens the room.
+local function CarryStep()
+    -- one teleport at a time (a failed one is tried again after 30 s)
+    if (Battle.Leaving and os.clock() - Battle.Leaving < 30) or not (Carry.Live and os.clock() - Carry.LiveAt < 60) then return end
+    local State = Battle.Run.store.state
+    local Why = nil
+    if Carry.Role() == "mother" and Carry.KidsHere(State) == 0 and #Carry.Missing(State) > 0 then
+        Why = ("%d kaitan to carry"):format(#Carry.Missing(State))
+    elseif Carry.Child() and Carry.Role() == "child" and Carry.Mother() and Carry.Mother().online and not Carry.MotherHere(State) then
+        Why = "carrier is waiting"
+    end
+    if not Why then return end
+    Battle.Leaving = os.clock()
+    Note("Carry: " .. Why .. " - leaving the match")
+    Say("Carry", "Leaving to the lobby (" .. Why .. ")")
+    task.delay(1, function() pcall(TeleportService.Teleport, TeleportService, LobbyPlaceId, LocalPlayer) end)
 end
 
 local function SkipTutorial()
@@ -2837,6 +2869,7 @@ local function MatchMain()
         if not Ok then Say("Farm", "Error: " .. tostring(Err)) end
         pcall(Watchdog)
         pcall(EndStep)
+        pcall(CarryStep)
         if not Farming() and not Battle.Stopped then
             Battle.Stopped = true
             Note("Stop farm from the website - back to lobby")
