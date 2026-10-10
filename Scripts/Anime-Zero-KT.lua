@@ -129,7 +129,7 @@ local Config = {
     -- while farming (user 2026-10-10: as light as possible for many accounts on one PC)
     Performance = {
         Boost       = true,  -- lowest graphics: no shadows / effects / particles / textures, plastic materials
-        WhiteScreen = true,  -- stop drawing the 3D world (Set3dRenderingEnabled) behind a white screen; the panel stays
+        WhiteScreen = true,  -- stop drawing the 3D world (Set3dRenderingEnabled): blank screen, the game's UI and mouse still show
         FpsCap      = 30,    -- setfpscap while farming (0 = leave the executor's cap)
     },
 
@@ -3322,7 +3322,7 @@ end
 
 ---- ============ Performance (FPS boost / white screen) ============ ----
 -- Only while farming. Boost is client-side only (what this PC draws; the server and the game's
--- logic see nothing) and stays for the session; the white screen and the FPS cap follow
+-- logic see nothing) and stays for the session; the blank screen and the FPS cap follow
 -- Start / Stop farm and are undone by KaitanCleanup.
 
 local Perf = { Boosted = false }
@@ -3369,14 +3369,9 @@ function Perf.Boost()
     end
 end
 
+-- no overlay (user 2026-10-10: the game's UI and mouse must stay visible) - with 3D rendering
+-- off the world is simply not drawn and every ScreenGui still is
 function Perf.Screen(On)
-    if On and not Perf.Gui then
-        local Gui = New("ScreenGui", { Name = "\0", ResetOnSpawn = false, IgnoreGuiInset = true, DisplayOrder = 998 })
-        New("Frame", { Size = UDim2.fromScale(1, 1), BorderSizePixel = 0, BackgroundColor3 = Color3.new(1, 1, 1), Parent = Gui })
-        Gui.Parent = (gethui and gethui()) or game:GetService("CoreGui")
-        Perf.Gui = Gui
-    end
-    if Perf.Gui then Perf.Gui.Enabled = On end
     if Perf.Rendering ~= On then
         Perf.Rendering = On
         pcall(RunService.Set3dRenderingEnabled, RunService, not On)
@@ -3397,7 +3392,6 @@ end
 
 function Perf.Stop()
     pcall(Perf.Screen, false)
-    if Perf.Gui then pcall(function() Perf.Gui:Destroy() end) Perf.Gui = nil end
     if Perf.Cap and Perf.Cap > 0 and setfpscap then pcall(setfpscap, 240) end
 end
 
