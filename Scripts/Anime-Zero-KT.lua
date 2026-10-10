@@ -678,15 +678,18 @@ do
 end
 
 ---- ============ Carry (แบกไก่) ============ ----
--- Groups are set on the website (Kaitan page > แบกไก่). A mother (end-game account) opens a
--- Shadow Gate room sized for up to 5 children (rooms hold 6, Shadow Gate attempts are unlimited)
--- and clears it alone. A child skips its starter spins and trait rolls, moves into the mother's
--- lobby server (TeleportToPlaceInstance + her JobId), walks into her room (friendsOnly off, joined
--- by standing in its JoinHitbox like the host) and hides above the map through the match, voting
--- whatever the mother votes. A child that has Sung Jinwoo is done: it leaves and farms alone.
--- The website only relays where the other side is (reply.carry, from every account's report).
+-- Groups make themselves (user 2026-10-10: no picking on the website): the site puts every
+-- running account of one owner that has Sung Jinwoo down as a carrier ("mother") and spreads the
+-- accounts without him over them, 5 per carrier (rooms hold 6, Shadow Gate attempts are
+-- unlimited). The carrier opens a Shadow Gate room for its group and clears it alone. A kaitan
+-- ("child") skips its starter spins and trait rolls, moves into the carrier's lobby server
+-- (TeleportToPlaceInstance + its JobId), walks into the room (friendsOnly off, joined by standing
+-- in its JoinHitbox like the host) and hides above the map through the match, voting whatever the
+-- carrier votes. A kaitan that gets Jinwoo becomes a carrier on the next report; a carrier with
+-- nobody to carry farms its own plan. Every report says state.Carry.jinwoo; the reply says which
+-- group this account is in and where the other side is (reply.carry).
 
-local Carry = { Unit = "sung_jinwoo", Live = nil, UrgentUntil = 0, HopAt = 0 }
+local Carry = { Unit = "sung_jinwoo", Live = nil, LiveAt = 0, UrgentUntil = 0, HopAt = 0 }
 
 function Carry.Info()
     return Carry.Live or (type(Saved.Carry) == "table" and Saved.Carry) or nil
@@ -702,9 +705,17 @@ function Carry.ChildDone(Data)
     return Data ~= nil and (Owns(Carry.Unit, Data) or Progress("storage." .. Carry.Unit, Data) > 0)
 end
 
--- a child still waiting for the unit: no starter spins, no trait rolling, follows the mother
+-- the site says a group for this account is about to form (the other side has not pressed
+-- Start yet): hold off a little instead of running off alone - 45 s at most
+function Carry.Waiting()
+    return Carry.Live ~= nil and not Carry.Live.role and Carry.Live.wait == true
+        and Carry.WaitSince ~= nil and os.clock() - Carry.WaitSince < 45
+end
+
+-- a child still waiting for the unit (or about to be one): no starter spins, no trait rolling
 function Carry.Child(Data)
-    return Carry.Role() == "child" and not Carry.ChildDone(Data)
+    if Carry.ChildDone(Data) then return false end
+    return Carry.Role() == "child" or Carry.Waiting()
 end
 
 function Carry.Mother()
@@ -725,16 +736,6 @@ function Carry.Pending()
     return List
 end
 
--- every kaitan of the group has Sung Jinwoo: the carrier is free to farm for itself
-function Carry.AllDone()
-    local Info = Carry.Live
-    if not (Info and Info.role == "mother" and type(Info.children) == "table" and #Info.children > 0) then return false end
-    for _, Kid in ipairs(Info.children) do
-        if type(Kid) ~= "table" or not Kid.done then return false end
-    end
-    return true
-end
-
 -- group ids as last seen (kept on disk: a match boots before its first report)
 function Carry.ChildIds()
     local Info = Carry.Info()
@@ -751,7 +752,12 @@ function Carry.Busy() return os.clock() < Carry.UrgentUntil end
 
 function Carry.Apply(Value)
     if type(Value) ~= "table" then return end
-    Carry.Live = Value
+    Carry.Live, Carry.LiveAt = Value, os.clock()
+    if Value.wait == true and not Value.role then
+        Carry.WaitSince = Carry.WaitSince or os.clock()
+    else
+        Carry.WaitSince = nil
+    end
     local Keep = { role = Value.role }
     if type(Value.mother) == "table" then Keep.mother = { id = tostring(Value.mother.id) } end
     if type(Value.children) == "table" then
@@ -1850,6 +1856,13 @@ local function LobbyMain()
         Say("Waiting", "รอสั่งการจากเว็บ")
         task.wait(1)
     end
+    -- group info as of now (a kaitan must know it is one before the starter spins)
+    local Asked = os.clock()
+    Carry.Urgent()
+    while Live() and Config.Web and Carry.LiveAt < Asked and os.clock() - Asked < 15 do
+        Say("Carry", "Checking carry groups")
+        task.wait(0.5)
+    end
     for _, Step in ipairs(Steps) do
         if Step[2] and Live() and Farming() then
             local Ok, Err = pcall(Step[2])
@@ -1879,16 +1892,10 @@ local function LobbyMain()
                 Step = ChildStep
             elseif #Carry.Pending() > 0 then
                 Step = MotherStep
-            elseif Carry.Role() == "mother" and not Carry.AllDone() then
-                -- kaitan still need Jinwoo but none is online: wait for them instead of farming
-                -- with no goal (user 2026-10-10); once all of them are done the carrier farms its own plan
+            elseif Carry.Waiting() then
                 Step = function()
-                    local Left = 0
-                    for _, Kid in ipairs(Carry.Live and type(Carry.Live.children) == "table" and Carry.Live.children or { }) do
-                        if type(Kid) == "table" and not Kid.done then Left = Left + 1 end
-                    end
-                    if Join.ClientStatus == "inQuque" then pcall(function() Lobby.Packets.leaveQuque:fire() end) end
-                    Say("Carry", ("รอไก่ออนไลน์ (%d ตัวยังไม่ได้ Jinwoo)"):format(Left))
+                    Carry.Urgent()
+                    Say("Carry", Carry.ChildDone() and "Kaitan starting - waiting to carry them" or "Carrier starting - waiting for the group")
                 end
             end
             local Ok, Err = pcall(Step, RoomStore.namespace)
@@ -2434,8 +2441,8 @@ local function EndStep()
                 Battle.Action, Work = 1, "carrying"
             end
             -- a run without the group (started before it was set up): back to the lobby to group up
-            if Carry.Role() == "mother" and Carry.KidsHere(State) == 0 and not Carry.AllDone() then
-                Battle.Action, Work = 3, #Carry.Pending() > 0 and "grouping" or "waiting for kaitan"
+            if Carry.Role() == "mother" and Carry.KidsHere(State) == 0 and #Carry.Pending() > 0 then
+                Battle.Action, Work = 3, "grouping"
             elseif Carry.Child() and not Carry.MotherHere(State) and Carry.Mother() and Carry.Mother().online then
                 Battle.Action, Work = 3, "join carrier"
             end
@@ -2748,8 +2755,8 @@ function Site.Payload()
         state = {
             Game = "Anime Zero",
             Farming = Farming(),
-            Carry = Carry.Role() and { role = Carry.Role(), room = Carry.Room,
-                done = Carry.Role() == "child" and Carry.ChildDone(Data) or nil } or nil,
+            Carry = { jinwoo = Carry.ChildDone(Data), role = Carry.Role(), room = Carry.Room,
+                done = Carry.Role() == "child" and Carry.ChildDone(Data) or nil },
             Stats = {
                 { label = "Main", value = Main and ("%s Lv%d"):format(NameOf(Main), Grow.Level(Main, Data)) or "-", hint = Status.Plan ~= "" and ("Next: " .. Status.Plan) or nil },
                 { label = "Player", value = "Lv" .. Plan.PlayerLevel(Data), hint = Num(C.gems) .. " gems" },
@@ -2797,7 +2804,10 @@ function Site.Commands(Reply)
                 local At = tonumber(Command.at) or 0
                 if Command.flag == "KaitanFarm" and type(Command.value) == "boolean" and At > (tonumber(Saved.FarmAt) or 0) then
                     Saved.Farm, Saved.FarmAt = Command.value, At
-                    if Command.value then Saved.Base = nil end -- "gained so far" counts from this start
+                    if Command.value then
+                        Saved.Base = nil -- "gained so far" counts from this start
+                        Carry.Urgent() -- the group forms on the next reports
+                    end
                     Save()
                     Note(Command.value and "Start farm (website)" or "Stop farm (website)")
                 end
