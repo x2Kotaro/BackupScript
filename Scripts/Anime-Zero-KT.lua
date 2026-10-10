@@ -2866,12 +2866,15 @@ function Site.Parts(Data)
     local Main = Plan.Main(Data)
     local Owned = Grow.Owned(Data)
 
-    local First = Config.Slots[1] or ""
-    if First ~= "" then
+    -- slot 1's Lucky Spin starter (Cursed King) is only the fallback for an account nobody
+    -- with Sung Jinwoo carries (user 2026-10-10): no part of its own, and slot 1 counts for
+    -- skills / evolve only once it actually holds its target
+    local function Counted(Slot)
+        local Target = Config.Slots[Slot] or ""
+        if Target == "" then return false end
+        if Slot ~= 1 or not Rollable(Target) then return true end
         local S = SlotData(1, Data)
-        local Done = S and S.Unlocked and Satisfies(S.Character, First)
-        Add("starter", "Slot 1: " .. First, 10, Done and 1 or 0, 1,
-            Done and NameOf(S.Character) or ("Arcane pity %d/350"):format(Currency("arcanePity", Data)))
+        return S ~= nil and S.Unlocked and Satisfies(S.Character, Target)
     end
     if Main then
         local Level = Grow.Level(Main, Data)
@@ -2881,7 +2884,7 @@ function Site.Parts(Data)
     local Tiers, Chars = 0, 0
     for Slot = 1, 4 do
         local Target = Config.Slots[Slot] or ""
-        if Target ~= "" then
+        if Counted(Slot) then
             Chars = Chars + 1
             local S = SlotData(Slot, Data)
             local Info = S and S.Unlocked and Satisfies(S.Character, Target) and Data.CharactersData and Data.CharactersData[S.Character]
@@ -2911,7 +2914,7 @@ function Site.Parts(Data)
     local Evolved, Total, WantsJinwoo = 0, 0, false
     for Slot = 1, 4 do
         local Target = Config.Slots[Slot] or ""
-        if Target ~= "" then
+        if Counted(Slot) then
             Total = Total + 1
             if RaidAlt(Target) == "sung_jinwoo" then WantsJinwoo = true end
             local S = SlotData(Slot, Data)
