@@ -17,7 +17,9 @@
         lobby when there is something to spend, else Next / Retry.
 
     SLOT TARGETS
-      A target lists alternatives with "|". Each alternative is a character
+      The four targets are a set: one is met when ANY slot holds a fitting
+      character (Cursed King in slot 3 meets the slot 1 target). New units go
+      into a slot no target uses. A target lists alternatives with "|". Each alternative is a character
       (display name "Cursed King" or id "sukuna") or a rarity ("Mythic" =
       Mythic or better). Where it comes from is worked out per alternative:
         rolled character / rarity  -> Lucky Spin into that slot
@@ -980,13 +982,95 @@ function Plan.Blocked(Key, Level)
     return false
 end
 
--- raid unit a slot still waits for (not owned, not sitting in storage)
-function Plan.RaidWanted(Data)
+-- Slot targets are a set, not positions (user 2026-10-10: Cursed King can sit in any slot): a
+-- target is met when some unlocked slot holds a character that satisfies it. Assign matches
+-- targets to the slots holding them (each slot counts once, its own slot first, the pickiest
+-- target first): Assign[target] = slot, Used[slot] = target.
+function Plan.Assign(Data)
+    local Holds = { }
     for Slot = 1, 4 do
-        local Id = RaidAlt(Config.Slots[Slot])
         local S = SlotData(Slot, Data)
-        if Id and not (S and Satisfies(S.Character, Config.Slots[Slot])) and not Owns(Id, Data)
-            and Progress("storage." .. Id, Data) <= 0 then
+        Holds[Slot] = S and S.Unlocked and S.Character or ""
+    end
+    local Candidates, Order = { }, { }
+    for T = 1, 4 do
+        local Target = Config.Slots[T] or ""
+        Candidates[T] = { }
+        if Target ~= "" then
+            table.insert(Order, T)
+            if Holds[T] ~= "" and Satisfies(Holds[T], Target) then table.insert(Candidates[T], T) end
+            for Slot = 1, 4 do
+                if Slot ~= T and Holds[Slot] ~= "" and Satisfies(Holds[Slot], Target) then table.insert(Candidates[T], Slot) end
+            end
+        end
+    end
+    table.sort(Order, function(A, B)
+        if #Candidates[A] ~= #Candidates[B] then return #Candidates[A] < #Candidates[B] end
+        return A < B
+    end)
+    local Assign, Used = { }, { }
+    local function Try(T, Seen)
+        for _, Slot in ipairs(Candidates[T]) do
+            if not Seen[Slot] then
+                Seen[Slot] = true
+                if not Used[Slot] or Try(Used[Slot], Seen) then
+                    Used[Slot], Assign[T] = T, Slot
+                    return true
+                end
+            end
+        end
+        return false
+    end
+    for _, T in ipairs(Order) do Try(T, { }) end
+    return Assign, Used
+end
+
+-- slot a raid unit from storage goes into (never one another target uses, never a favourite):
+-- its own slot (unlocked, or locked and the coins are there), an empty one, another slot the
+-- coins can unlock, and only once no slot is left to buy over a character no target wants (the
+-- weakest) - a starter that is still the main is not thrown away for a Lv1 unit
+function Plan.PlaceSpot(T, Data, Used)
+    local Money = Currency("money", Data)
+    local function Ok(Slot)
+        local S = SlotData(Slot, Data)
+        return S and not Used[Slot] and not S.Favourite and S or nil
+    end
+    local Own = Ok(T)
+    if Own and (Own.Unlocked or Money >= UnlockCost(T)) then return T end
+    for Slot = 1, 4 do local S = Ok(Slot) if S and S.Unlocked and S.Character == "" then return Slot end end
+    for Slot = 1, 4 do local S = Ok(Slot) if S and not S.Unlocked and Money >= UnlockCost(Slot) then return Slot end end
+    -- a slot still to buy: wait for the coins rather than overwrite a character
+    for Slot = 1, 4 do local S = Ok(Slot) if S and not S.Unlocked then return nil end end
+    local Best, BestRank = nil, math.huge
+    for Slot = 1, 4 do
+        local S = Ok(Slot)
+        if S and S.Unlocked and RankOf(S.Character) < BestRank then Best, BestRank = Slot, RankOf(S.Character) end
+    end
+    return Best
+end
+
+-- slot a Lucky / Normal Spin rolls for an unmet target: unlocked (or one Plan.UnlockForSpin may
+-- buy), not used by another target, spinnable - its own slot first
+function Plan.SpinSpot(T, Data, Used)
+    local Order = { T }
+    for Slot = 1, 4 do if Slot ~= T then table.insert(Order, Slot) end end
+    for _, Slot in ipairs(Order) do
+        local S = SlotData(Slot, Data)
+        if S and not Used[Slot] and (S.Unlocked or Plan.UnlockForSpin(Slot, Data)) and Plan.Spinnable(S) then return Slot end
+    end
+end
+
+-- a slot Lucky / Normal Spin may roll over: not protected, not favourite (unless un-favouriting is on)
+function Plan.Spinnable(S)
+    return (not S.Favourite or Config.Summon.Unfavourite) and RankOf(S.Character) < (RarityRank[Config.Summon.Protect] or 99)
+end
+
+-- raid unit a target still waits for (not owned, not sitting in storage)
+function Plan.RaidWanted(Data)
+    local Assign = Plan.Assign(Data)
+    for T = 1, 4 do
+        local Id = RaidAlt(Config.Slots[T])
+        if Id and not Assign[T] and not Owns(Id, Data) and Progress("storage." .. Id, Data) <= 0 then
             return Id
         end
     end
@@ -1062,10 +1146,10 @@ end
 
 -- a slot still waits for its raid unit (farming it or not yet placed from storage)
 function Plan.UnitsPending(Data)
-    for Slot = 1, 4 do
-        local Id = RaidAlt(Config.Slots[Slot])
-        local S = SlotData(Slot, Data)
-        if Id and not (S and S.Unlocked and Satisfies(S.Character, Config.Slots[Slot])) and not Owns(Id, Data) then return true end
+    local Assign = Plan.Assign(Data)
+    for T = 1, 4 do
+        local Id = RaidAlt(Config.Slots[T])
+        if Id and not Assign[T] and not Owns(Id, Data) then return true end
     end
     return false
 end
@@ -1080,8 +1164,7 @@ function Plan.Starter(Data)
     if Carry.ChildDone(Data) then return false end
     local Target = Config.Slots[1] or ""
     if Target == "" or not Rollable(Target) then return false end
-    local S = SlotData(1, Data)
-    return not (S and S.Unlocked and Satisfies(S.Character, Target))
+    return Plan.Assign(Data)[1] == nil
 end
 
 -- may gems be turned into Lucky Spins now?
@@ -1122,18 +1205,17 @@ function Plan.LobbyWork(Data)
         or (not Starter and Spins >= 1)
         or (EndGame and (Currency("rolls", Data) >= 1 or Plan.NormalBudget(Data) >= (Config.Summon.NormalBatch or 100000)))
 
-    for Slot = 1, 4 do
-        local Target = Config.Slots[Slot] or ""
-        local S = SlotData(Slot, Data)
-        if Target ~= "" and S and not (S.Unlocked and Satisfies(S.Character, Target)) then
+    local Assign, Used = Plan.Assign(Data)
+    for T = 1, 4 do
+        local Target = Config.Slots[T] or ""
+        if Target ~= "" and not Assign[T] then
             local Unit = RaidAlt(Target)
-            if Unit and Progress("storage." .. Unit, Data) > 0 and (S.Unlocked or Currency("money", Data) >= UnlockCost(Slot)) then
+            local Place = Unit and Progress("storage." .. Unit, Data) > 0 and Plan.PlaceSpot(T, Data, Used)
+            if Place and (SlotData(Place, Data).Unlocked or Currency("money", Data) >= UnlockCost(Place)) then
                 return NameOf(Unit) .. " ready to place"
             end
-            if (S.Unlocked or Plan.UnlockForSpin(Slot, Data)) and Rollable(Target) and CanSpin and (not S.Favourite or Config.Summon.Unfavourite)
-                and RankOf(S.Character) < (RarityRank[Config.Summon.Protect] or 99) then
-                return "spin slot " .. Slot
-            end
+            local Spin = Rollable(Target) and CanSpin and Plan.SpinSpot(T, Data, Used)
+            if Spin then return "spin slot " .. Spin end
         end
     end
 
@@ -1163,9 +1245,11 @@ end
 local function UpdateSlotStatus()
     local Data = AccountTable()
     if not Data then return end
+    local _, Used = Plan.Assign(Data)
     for Slot = 1, 4 do
         local S = SlotData(Slot, Data)
-        local Target = Config.Slots[Slot] or ""
+        -- the target this slot meets, else the one set for this slot
+        local Target = Used[Slot] and Config.Slots[Used[Slot]] or Config.Slots[Slot] or ""
         local Text
         if not S or not S.Unlocked then
             Text = "locked"
@@ -1173,7 +1257,7 @@ local function UpdateSlotStatus()
             Text = S.Character ~= "" and ("%s Lv%d"):format(NameOf(S.Character), Grow.Level(S.Character, Data)) or "empty"
             if S.Favourite then Text = Text .. " *" end
         end
-        local Done = S and S.Unlocked and Satisfies(S.Character, Target)
+        local Done = Used[Slot] ~= nil
         Status.Slots[Slot] = ("%s  ->  %s%s"):format(Text, Target ~= "" and Target or "-", Target ~= "" and (Done and "  OK" or "") or "")
     end
     local C = Data.currencies or { }
@@ -1385,32 +1469,33 @@ local function SpinOnce(Slot, Target)
     return true
 end
 
--- every slot: raid unit waiting in storage -> place it / rollable target -> Lucky Spin
+-- every target not met in any slot: raid unit waiting in storage -> place it into a slot no
+-- other target uses / rollable target -> Lucky Spin such a slot; a met target's slot is favourited
 local function FillSlots()
-    for Slot = 1, 4 do
-        local Target = Config.Slots[Slot] or ""
-        local S = SlotData(Slot)
-        if Target ~= "" and S and Live() then
+    for T = 1, 4 do
+        local Target = Config.Slots[T] or ""
+        local Assign, Used = Plan.Assign(AccountTable())
+        if Target ~= "" and Live() and not Assign[T] then
             local Unit = RaidAlt(Target)
-            if not (S.Unlocked and Satisfies(S.Character, Target)) and Unit and Progress("storage." .. Unit, AccountTable()) > 0
-                and not S.Favourite and UnlockSlot(Slot) then
-                Say("Slots", ("Placing %s into slot %d"):format(NameOf(Unit), Slot))
-                local Reply = Request("placeStoredUnit", "storedUnitPlaced", { character = Unit, slot = Slot })
-                Note(("Place %s -> slot %d: %s"):format(NameOf(Unit), Slot, Reply and (Reply.success == false and tostring(Reply.reason) or "ok") or "no reply"))
-                task.wait(0.5)
-                S = SlotData(Slot)
+            if Unit and Progress("storage." .. Unit, AccountTable()) > 0 then
+                local Slot = Plan.PlaceSpot(T, AccountTable(), Used)
+                if Slot and UnlockSlot(Slot) then
+                    Say("Slots", ("Placing %s into slot %d"):format(NameOf(Unit), Slot))
+                    local Reply = Request("placeStoredUnit", "storedUnitPlaced", { character = Unit, slot = Slot })
+                    Note(("Place %s -> slot %d: %s"):format(NameOf(Unit), Slot, Reply and (Reply.success == false and tostring(Reply.reason) or "ok") or "no reply"))
+                    task.wait(0.5)
+                end
+                Assign, Used = Plan.Assign(AccountTable())
             end
+            local Slot = not Assign[T] and Rollable(Target) and not Carry.Child() and Plan.SpinSpot(T, AccountTable(), Used)
+            local S = Slot and SlotData(Slot)
             -- a locked Lucky Spin slot (slot 4 LYTH) is bought only at end game
-            if S and not S.Unlocked and Rollable(Target) and Plan.UnlockForSpin(Slot, AccountTable()) then
+            if S and not S.Unlocked and Plan.UnlockForSpin(Slot, AccountTable()) then
                 UnlockSlot(Slot)
                 S = SlotData(Slot)
             end
             while S and S.Unlocked and Live() do
-                if Satisfies(S.Character, Target) then
-                    Favourite(Slot)
-                    break
-                end
-                if not Rollable(Target) or Carry.Child() then break end
+                if Satisfies(S.Character, Target) then break end
                 if S.Favourite then
                     if not Config.Summon.Unfavourite then break end
                     Request("setCharacterSlotFavourite", "characterSlotActionResult", { slot = Slot, favourite = false })
@@ -1433,6 +1518,8 @@ local function FillSlots()
                 if S and Satisfies(S.Character, Target) then Note(("Slot %d done: %s"):format(Slot, NameOf(S.Character))) end
             end
         end
+        Assign = Plan.Assign(AccountTable())
+        if Assign[T] then Favourite(Assign[T]) end
     end
 end
 
@@ -3044,12 +3131,16 @@ function Site.Parts(Data)
     -- slot 1's Lucky Spin starter (Cursed King) is only the fallback for an account nobody
     -- with Sung Jinwoo carries (user 2026-10-10): no part of its own, and slot 1 counts for
     -- skills / evolve only once it actually holds its target
+    local Assign = Plan.Assign(Data)
     local function Counted(Slot)
         local Target = Config.Slots[Slot] or ""
         if Target == "" then return false end
-        if Slot ~= 1 or not Rollable(Target) then return true end
-        local S = SlotData(1, Data)
-        return S ~= nil and S.Unlocked and Satisfies(S.Character, Target)
+        return Slot ~= 1 or not Rollable(Target) or Assign[1] ~= nil
+    end
+    -- character data of whatever slot meets a target (targets are not tied to positions)
+    local function Holder(T)
+        local S = Assign[T] and SlotData(Assign[T], Data)
+        return S and Data.CharactersData and Data.CharactersData[S.Character] or nil
     end
     if Main then
         local Level = Grow.Level(Main, Data)
@@ -3061,8 +3152,7 @@ function Site.Parts(Data)
         local Target = Config.Slots[Slot] or ""
         if Counted(Slot) then
             Chars = Chars + 1
-            local S = SlotData(Slot, Data)
-            local Info = S and S.Unlocked and Satisfies(S.Character, Target) and Data.CharactersData and Data.CharactersData[S.Character]
+            local Info = Holder(Slot)
             local Skills = type(Info) == "table" and Info.Progression and Info.Progression.Skills or { }
             for _, Branch in ipairs({ "ATK", "CRIT", "DEF", "SPD" }) do Tiers = Tiers + math.min(tonumber(Skills[Branch]) or 0, 5) end
         end
@@ -3092,8 +3182,7 @@ function Site.Parts(Data)
         if Counted(Slot) then
             Total = Total + 1
             if RaidAlt(Target) == "sung_jinwoo" then WantsJinwoo = true end
-            local S = SlotData(Slot, Data)
-            local Info = S and S.Unlocked and Satisfies(S.Character, Target) and Data.CharactersData and Data.CharactersData[S.Character]
+            local Info = Holder(Slot)
             if type(Info) == "table" and Info.IsUltimateUnlocked then Evolved = Evolved + 1 end
         end
     end
@@ -3117,9 +3206,9 @@ function Site.Parts(Data)
     end
     local Last = Config.Slots[4] or ""
     if Last ~= "" and Rollable(Last) then
+        local Held = Assign[4] and SlotData(Assign[4], Data)
         local S = SlotData(4, Data)
-        local Done = S and S.Unlocked and Satisfies(S.Character, Last)
-        Add("slot4", "Slot 4: " .. Last, 5, Done and 1 or 0, 1, Done and NameOf(S.Character) or (S and S.Unlocked and "spinning" or "locked"))
+        Add("slot4", "Slot 4: " .. Last, 5, Held and 1 or 0, 1, Held and NameOf(Held.Character) or (S and S.Unlocked and "spinning" or "locked"))
     end
 
     -- re-scale the weights that apply to 100
