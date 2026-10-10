@@ -132,8 +132,8 @@ local Config = {
         WhiteScreen = true,  -- stop drawing the 3D world (Set3dRenderingEnabled): blank screen, the game's UI and mouse still show
         FpsCap      = 30,    -- setfpscap while farming (0 = leave the executor's cap)
     },
-    -- hide this account's name on screen: the panel, the game's UI (boss damage list...) and the
-    -- Roblox player list (what this PC shows only - others still see the real name)
+    -- hide this account's name on screen: the panel (the avatar picture stays), the game's UI
+    -- (boss damage list...) and the Roblox player list (this PC only - others still see the name)
     HideName = true,
 
     Codes   = true,
@@ -3267,8 +3267,7 @@ local function BuildPanel()
     local Card = CardFrame({ LayoutOrder = 3, Parent = Main })
     local Profile = New("Frame", { BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 52), LayoutOrder = -2, Parent = Card })
     New("ImageLabel", { Size = UDim2.fromOffset(52, 52), BackgroundColor3 = Theme.Track, BorderSizePixel = 0,
-        Image = Config.HideName and "rbxassetid://87057639235201" or ("rbxthumb://type=AvatarHeadShot&id=%d&w=150&h=150"):format(LocalPlayer.UserId),
-        Parent = Profile },
+        Image = ("rbxthumb://type=AvatarHeadShot&id=%d&w=150&h=150"):format(LocalPlayer.UserId), Parent = Profile },
         { Corner(26), New("UIStroke", { Color = Theme.Line, Thickness = 1 }) })
     New("TextLabel", { BackgroundTransparency = 1, Position = UDim2.fromOffset(66, 7), Size = UDim2.new(1, -66, 0, 20), Text = Config.HideName and "Hidden" or LocalPlayer.DisplayName,
         TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, FontFace = Heading(Enum.FontWeight.SemiBold), TextSize = 17,
