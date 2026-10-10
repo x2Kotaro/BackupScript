@@ -125,6 +125,11 @@ local Config = {
     -- (Ferocity +18% dmg / Supernova +24% / Deadeye +20% & crit - Legendary pity 250, Exotic 1000)
     Trait = { Keep = { "Supernova", "Deadeye", "Ferocity" } },
     Gear  = true,     -- equip the best damage title + accessories already owned
+    -- accessories (all 14 are crafted from Story Hxh materials): craft the best piece of every slot
+    -- that is on - most Damage %, then tier, then the other buffs. Materials an evolve or the next
+    -- Igris level still needs are never spent; Farm = the planner farms what a craft is missing
+    -- (after the evolves / Igris)
+    Craft = { Enabled = true, Farm = true, Head = true, Face = true, Neck = true, Back = true },
 
     -- while farming (user 2026-10-10: as light as possible for many accounts on one PC)
     Performance = {
@@ -489,6 +494,9 @@ do
         Grow.Shop = TryRequire("assets", "config", "MaterialShopConfig")
         Grow.Drops = TryRequire("assets", "config", "materialDropConfig")
         Grow.Path = TryRequire("assets", "config", "MonarchPathConfig")
+        Grow.Gear = TryRequire("assets", "config", "accessoryConfig")
+        Grow.GearSlots = TryRequire("assets", "config", "accessorySlotConfig")
+        Grow.Recipes = TryRequire("assets", "config", "accessoryCraftConfig")
     end
 
     function Grow.Level(Id, Data)
@@ -627,8 +635,75 @@ do
         return List
     end
 
-    -- everything still to buy, in order: evolves (best rank first), then Igris levels
-    -- { Name, Missing = { [item] = n }, Currencies = { money = n }, Evolve = id | Igris = node }
+    -- accessory worth: Damage % first, then tier, then every other buff %
+    function Grow.GearScore(Info)
+        local Damage, Total = 0, 0
+        for _, Buff in ipairs(type(Info) == "table" and Info.Buffs or { }) do
+            local Value = tonumber(Buff.Percent) or 0
+            Total = Total + Value
+            if tostring(Buff.Type) == "Damage" then Damage = Damage + Value end
+        end
+        return Damage * 1000 + (tonumber(Info and Info.Tier) or 0) * 100 + Total
+    end
+
+    -- best piece per slot (Head / Face / Neck / Back) with its recipe: { [slot] = { Id, Key, Name, Recipe } }
+    function Grow.BestGear()
+        if Grow.BestCache then return Grow.BestCache end
+        if not (Grow.Gear and Grow.GearSlots and Grow.Recipes) then return { } end
+        local Best = { }
+        for Key, Recipe in pairs(Grow.Recipes) do
+            local Id = type(Recipe) == "table" and tostring(Recipe.CarftID or "") or ""
+            local Info = Grow.Gear[Id] or Grow.Gear[tonumber(Id)]
+            local Ok, Slot = pcall(Grow.GearSlots.GetSlot, Id)
+            if Info and Ok and Slot and (not Best[Slot] or Grow.GearScore(Info) > Grow.GearScore(Best[Slot].Info)) then
+                local Needs = { }
+                for Item, Amount in tostring(Recipe.Misc or ""):gmatch("(%d+),(%d+)") do Needs[Item] = (Needs[Item] or 0) + tonumber(Amount) end
+                Best[Slot] = { Id = Id, Key = tostring(Key), Name = tostring(Info.Name or Id), Info = Info, Recipe = Needs }
+            end
+        end
+        Grow.BestCache = Best
+        return Best
+    end
+
+    -- materials the next evolve of every owned character and the next Igris levels still use
+    function Grow.Reserved(Data)
+        local Reserved = { }
+        for _, Entry in ipairs(Grow.Owned(Data)) do
+            local Cost = Grow.Cost(Entry.Id, Data)
+            for Item, Amount in pairs(Cost and Cost.Materials or { }) do Reserved[Item] = (Reserved[Item] or 0) + Amount end
+        end
+        for _, Next in ipairs(Grow.IgrisNodes()) do
+            for Item, Amount in tostring(Next.Cost.Materials or ""):gmatch("(%d+),(%d+)") do Reserved[Item] = (Reserved[Item] or 0) + tonumber(Amount) end
+        end
+        return Reserved
+    end
+
+    -- slots (on in Config.Craft) whose best piece is not owned yet, with what the craft still
+    -- misses out of the spare materials: { { Slot, Id, Key, Name, Missing } }
+    function Grow.CraftTargets(Data)
+        local List = { }
+        local C = Config.Craft or { }
+        if not (C.Enabled and Data) then return List end
+        local Bag = Data.material or { }
+        local Reserved = Grow.Reserved(Data)
+        local Used = { }
+        for _, Slot in ipairs({ "Head", "Face", "Neck", "Back" }) do
+            local Pick = Grow.BestGear()[Slot]
+            if C[Slot] ~= false and Pick and (tonumber(Data.accessory and Data.accessory[Pick.Id]) or 0) <= 0 then
+                local Missing = { }
+                for Item, Amount in pairs(Pick.Recipe) do
+                    local Spare = (tonumber(Bag[Item]) or 0) - (Reserved[Item] or 0) - (Used[Item] or 0)
+                    if Amount > Spare then Missing[Item] = Amount - math.max(Spare, 0) end
+                    Used[Item] = (Used[Item] or 0) + Amount
+                end
+                table.insert(List, { Slot = Slot, Id = Pick.Id, Key = Pick.Key, Name = Pick.Name, Missing = Missing })
+            end
+        end
+        return List
+    end
+
+    -- everything still to buy, in order: evolves (best rank first), Igris levels, then crafts
+    -- { Name, Missing = { [item] = n }, Currencies = { money = n }, Evolve = id | Igris = node | Craft = recipe key }
     function Grow.Projects(Data)
         local List = { }
         local Bag = Data and Data.material or { }
@@ -646,6 +721,11 @@ do
             end
             table.insert(List, { Name = "Igris " .. Next.Node .. " " .. Next.Level, Missing = Missing,
                 Currencies = { money = tonumber(Next.Cost.Money) or 0 }, Igris = Next.Node })
+        end
+        if Config.Craft and Config.Craft.Farm then
+            for _, Target in ipairs(Grow.CraftTargets(Data)) do
+                table.insert(List, { Name = "Craft " .. Target.Name, Missing = Target.Missing, Currencies = { }, Craft = Target.Key })
+            end
         end
         return List
     end
@@ -1058,7 +1138,7 @@ function Plan.LobbyWork(Data)
         for Key, Amount in pairs(Project.Currencies or { }) do
             if Currency(Key, Data) < Amount then Afford = false end
         end
-        if Afford and not Starter and ((Project.Evolve and Config.Lobby.Evolve) or (Project.Igris and Config.Lobby.Igris)) then
+        if Afford and not Starter and ((Project.Evolve and Config.Lobby.Evolve) or (Project.Igris and Config.Lobby.Igris) or Project.Craft) then
             return "upgrade " .. Project.Name
         end
     end
@@ -1410,10 +1490,12 @@ local function ShopMaterials()
         -- keep what every unevolved owned character still needs
         for _ = 1, 10 do
             Data = AccountTable()
-            local Reserved = { }
-            for _, Entry in ipairs(Grow.Owned(Data)) do
-                local Cost = Grow.Cost(Entry.Id, Data)
-                for Item, Amount in pairs(Cost and Cost.Materials or { }) do Reserved[Item] = (Reserved[Item] or 0) + Amount end
+            -- evolves, Igris levels and the gear still to craft keep what they use (a craft
+            -- recipe left out here got converted back and forth: Broken Blade <-> Mana Feather)
+            local Reserved = Grow.Reserved(Data)
+            for _, Target in ipairs(Grow.CraftTargets(Data)) do
+                local Pick = Grow.BestGear()[Target.Slot]
+                for Item, Amount in pairs(Pick and Pick.Recipe or { }) do Reserved[Item] = (Reserved[Item] or 0) + Amount end
             end
             -- Shadow Gate materials feed the Igris tree too - never convert them away
             for Item = 115, 120 do Reserved[tostring(Item)] = math.huge end
@@ -1513,6 +1595,31 @@ local function RollTraits()
     end
 end
 
+-- craftAccessory(recipe key "1".."14") - the answer only comes as showNotification text;
+-- done = account.accessory[item] went up
+local function CraftGear()
+    for _, Target in ipairs(Grow.CraftTargets(AccountTable())) do
+        if not Live() then return end
+        if not next(Target.Missing) then
+            Say("Craft", ("%s (%s)"):format(Target.Name, Target.Slot))
+            local Notice = nil
+            local Hook = Lobby.Packets.showNotification:on(function(Result)
+                if type(Result) == "table" then Notice = Result.text end
+            end)
+            Lobby.Packets.craftAccessory:fire(Target.Key)
+            local Waited, Done = 0, false
+            while Waited < 4 and not Done do
+                Waited = Waited + task.wait(0.2)
+                local Data = AccountTable()
+                Done = (tonumber(Data and Data.accessory and Data.accessory[Target.Id]) or 0) > 0
+            end
+            Unhook(Hook)
+            Note(("Craft %s (%s): %s"):format(Target.Name, Target.Slot, Done and "ok" or tostring(Notice or "no reply")))
+            task.wait(0.5)
+        end
+    end
+end
+
 -- best Damage% title owned (equipTitle toggles: only fire when another one is worn) and the
 -- best damage accessory per slot (Head/Face/Neck/Back)
 local function EquipGear()
@@ -1546,15 +1653,7 @@ local function EquipGear()
     local Items = TryRequire("assets", "config", "accessoryConfig")
     local Slots = TryRequire("assets", "config", "accessorySlotConfig")
     if Items and Slots then
-        local function Score(Info)
-            local Damage, Total = 0, 0
-            for _, Buff in ipairs(Info.Buffs or { }) do
-                local Value = tonumber(Buff.Percent) or 0
-                Total = Total + Value
-                if Buff.Type == "Damage" or (Buffs and Buff.Type == Buffs.Damage) then Damage = Damage + Value end
-            end
-            return Damage * 1000 + (tonumber(Info.Tier) or 0) * 100 + Total
-        end
+        local Score = Grow.GearScore
         local Worn = type(Data.equippedAccessories) == "table" and Data.equippedAccessories or { }
         local Best = { }
         for RawId, Info in pairs(Items) do
@@ -1880,6 +1979,7 @@ local function LobbyMain()
         { "Shop", ShopMaterials },
         { "Evolve", Config.Lobby.Evolve and EvolveAll },
         { "Igris", UpgradeIgris },
+        { "Craft", CraftGear },
         { "Gear", EquipGear },
         { "Team", EquipTeam },
         { "Traits", function() if not Carry.Child() then RollTraits() end end },
