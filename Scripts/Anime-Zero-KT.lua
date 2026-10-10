@@ -703,13 +703,15 @@ function Carry.Mother()
     return Info and type(Info.mother) == "table" and Info.mother or nil
 end
 
--- children the mother still carries: online, farming, not done (live data only)
-function Carry.Kids()
+-- children the mother must group with before any room: online and not done, Start farm
+-- pressed or not (one still waiting for the button gets it any moment - "เริ่มทั้งหมด" starts
+-- the whole group at once, and the mother's reply can still show it as not started)
+function Carry.Pending()
     local List = { }
     local Info = Carry.Live
     if not (Info and Info.role == "mother" and type(Info.children) == "table") then return List end
     for _, Kid in ipairs(Info.children) do
-        if type(Kid) == "table" and Kid.online and Kid.farming ~= false and not Kid.done then table.insert(List, Kid) end
+        if type(Kid) == "table" and Kid.online and not Kid.done then table.insert(List, Kid) end
     end
     return List
 end
@@ -1689,10 +1691,11 @@ end
 local function MotherStep(Rooms)
     Carry.Urgent()
     if Join.ClientStatus == "inQuque" or Join.ClientStatus == "teleporting" then return JoinStep(Rooms) end
-    local Kids = Carry.Kids()
-    local Here = 0
+    local Kids = Carry.Pending()
+    local Here, Idle = 0, 0
     for _, Kid in ipairs(Kids) do
-        if tostring(Kid.jobId) == game.JobId and tostring(Kid.placeId) == tostring(LobbyPlaceId) then Here = Here + 1 end
+        if Kid.farming == false then Idle = Idle + 1 end
+        if Kid.farming ~= false and tostring(Kid.jobId) == game.JobId and tostring(Kid.placeId) == tostring(LobbyPlaceId) then Here = Here + 1 end
     end
     -- lobby servers hold 20 and most are nearly full: no room for the children = move to a quiet one
     local Free = Players.MaxPlayers - #Players:GetPlayers()
@@ -1715,7 +1718,8 @@ local function MotherStep(Rooms)
     Carry.GatherSince = Carry.GatherSince or os.clock()
     local Waited = os.clock() - Carry.GatherSince
     if Here < #Kids and (Here == 0 or Waited < 180) then
-        return Say("Carry", ("Grouping - kaitan in this server %d/%d  ·  %ds"):format(Here, #Kids, math.floor(Waited)))
+        return Say("Carry", ("Grouping - kaitan in this server %d/%d%s  ·  %ds"):format(Here, #Kids,
+            Idle > 0 and ("  ·  %d waiting for Start farm"):format(Idle) or "", math.floor(Waited)))
     end
     JoinStep(Rooms, {
         Players = 1 + Here,
@@ -1846,7 +1850,7 @@ local function LobbyMain()
                 Step = function() Say("Carry", "Waiting for the website (group info)") end
             elseif Carry.Child() and Carry.Mother() and Carry.Mother().online then
                 Step = ChildStep
-            elseif #Carry.Kids() > 0 then
+            elseif #Carry.Pending() > 0 then
                 Step = MotherStep
             end
             local Ok, Err = pcall(Step, RoomStore.namespace)
@@ -2374,6 +2378,12 @@ local function EndStep()
             -- mother with children in this run: Retry together (Leave only for the regular lobby visit)
             if Carry.Role() == "mother" and Carry.KidsHere(State) > 0 and (Saved.SinceLobby or 0) < (Config.Lobby.Every or 10) then
                 Battle.Action, Work = 1, "carrying"
+            end
+            -- a run without the group (started before it was set up): back to the lobby to group up
+            if Carry.Role() == "mother" and Carry.KidsHere(State) == 0 and #Carry.Pending() > 0 then
+                Battle.Action, Work = 3, "grouping"
+            elseif Carry.Child() and not Carry.MotherHere(State) and Carry.Mother() and Carry.Mother().online then
+                Battle.Action, Work = 3, "join carrier"
             end
             Note(("Match %s -> %s%s"):format(tostring(MyStatus), ({ "Retry", "Next", "Leave" })[Battle.Action], Work and (" (" .. Work .. ")") or ""))
         end
