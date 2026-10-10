@@ -3425,7 +3425,7 @@ local function BuildPanel()
     New("ImageLabel", { Size = UDim2.fromOffset(52, 52), BackgroundColor3 = Theme.Track, BorderSizePixel = 0,
         Image = ("rbxthumb://type=AvatarHeadShot&id=%d&w=150&h=150"):format(LocalPlayer.UserId), Parent = Profile },
         { Corner(26), New("UIStroke", { Color = Theme.Line, Thickness = 1 }) })
-    New("TextLabel", { BackgroundTransparency = 1, Position = UDim2.fromOffset(66, 7), Size = UDim2.new(1, -66, 0, 20), Text = Config.HideName and HiddenName or LocalPlayer.DisplayName,
+    Panel.Name = New("TextLabel", { BackgroundTransparency = 1, Position = UDim2.fromOffset(66, 7), Size = UDim2.new(1, -66, 0, 20), Text = "",
         TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, FontFace = Heading(Enum.FontWeight.SemiBold), TextSize = 17,
         TextColor3 = Theme.Text, Parent = Profile })
     Panel.Who = New("TextLabel", { BackgroundTransparency = 1, Position = UDim2.fromOffset(66, 29), Size = UDim2.new(1, -66, 0, 16), Text = "",
@@ -3476,6 +3476,8 @@ local function RenderPanel()
     Panel.Next.Text = Status.Plan ~= "" and (Gray("ต่อไป  ") .. Escape(Status.Plan)) or ""
     Panel.Next.Visible = Status.Plan ~= ""
 
+    -- HideName can change from the website at any time
+    Panel.Name.Text = Config.HideName and HiddenName or LocalPlayer.DisplayName
     local Parts = { Config.HideName and "Valkyrie Hub" or ("@" .. LocalPlayer.Name), Status.Main }
     Panel.Who.Text = table.concat(Parts, "  ·  ")
 end
@@ -3542,10 +3544,12 @@ end
 -- its damage list all the time) + the Roblox player list off
 local function Plain(Text) return (Text:gsub("[%p]", "%%%0")) end
 function Perf.HideName()
-    if not Config.HideName then return end
-    if not Perf.ListOff then
-        Perf.ListOff = pcall(function() game:GetService("StarterGui"):SetCoreGuiEnabled(Enum.CoreGuiType.PlayerList, false) end)
+    local Hide = Config.HideName == true
+    if Hide ~= (Perf.ListOff == true) then
+        local Ok = pcall(function() game:GetService("StarterGui"):SetCoreGuiEnabled(Enum.CoreGuiType.PlayerList, not Hide) end)
+        if Ok then Perf.ListOff = Hide end
     end
+    if not Hide then return end
     local Gui = LocalPlayer:FindFirstChildOfClass("PlayerGui")
     if not Gui then return end
     local Names = { Plain(LocalPlayer.Name) }
