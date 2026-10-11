@@ -3205,6 +3205,21 @@ function Site.Parts(Data)
             Add("igris", "Igris tree", 5, Levels, 20, ("%d/20 levels"):format(Levels))
         end
     end
+    -- accessories: the best piece of every slot crafting is on for (Config.Craft), owned and worn
+    if Config.Craft and Config.Craft.Enabled then
+        local Have, Want, Missing = 0, 0, { }
+        local Worn = type(Data.equippedAccessories) == "table" and Data.equippedAccessories or { }
+        for _, Slot in ipairs({ "Head", "Face", "Neck", "Back" }) do
+            local Pick = Grow.BestGear()[Slot]
+            if Config.Craft[Slot] ~= false and Pick then
+                Want = Want + 1
+                if tostring(Worn[Slot] or "") == Pick.Id then Have = Have + 1 else table.insert(Missing, Slot) end
+            end
+        end
+        if Want > 0 then
+            Add("accessory", "Accessory", 10, Have, Want, Have >= Want and "best in every slot" or ("%d/%d · missing %s"):format(Have, Want, table.concat(Missing, ", ")))
+        end
+    end
     local Last = Config.Slots[4] or ""
     if Last ~= "" and Rollable(Last) then
         local Held = Assign[4] and SlotData(Assign[4], Data)
