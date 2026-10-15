@@ -38,5 +38,9 @@
   "ste": {
     "file": "STE.lua",
     "slug": "steal-an-egg"
+  },
+  "aztest": {
+    "file": "Anime-Zero.lua",
+    "slug": "anime-zero-test"
   }
 }
