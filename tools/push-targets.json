@@ -3,6 +3,10 @@
     "file": "Anime-Zero.lua",
     "slug": "anime-zero"
   },
+  "aztest": {
+    "file": "Anime-Zero.lua",
+    "slug": "anime-zero-test"
+  },
   "gfc": {
     "file": "GFC.lua",
     "slug": "grow-a-chicken-fighter"
@@ -20,7 +24,7 @@
     "slug": "anime-zero-kaitan"
   },
   "loader": {
-    "file": "whitelist_check.lua",
+    "file": "../whitelist_check.lua",
     "slug": "loading"
   },
   "ltf": {
@@ -28,7 +32,7 @@
     "slug": "ltf-lua"
   },
   "milenium": {
-    "file": "../UI-Library/Milenium/main.luau",
+    "file": "main.luau",
     "slug": "milenium-lib"
   },
   "slayer": {
@@ -38,9 +42,5 @@
   "ste": {
     "file": "STE.lua",
     "slug": "steal-an-egg"
-  },
-  "aztest": {
-    "file": "Anime-Zero.lua",
-    "slug": "anime-zero-test"
   }
 }
