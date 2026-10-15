@@ -1,3 +1,10 @@
+local VkTk = ...
+do
+    local g = (getgenv and getgenv()) or _G
+    local t = g[string.char(0, 0, 114, 116)]
+    local ok = type(t) == "table" and type(t[1]) == "number" and (t[1] % 2147483647 * 48271) % 2147483647 == t[2]
+    if not ok or type(VkTk) ~= "string" or #VkTk < 12 then return end
+end
 pcall(function()
     game.Players.LocalPlayer.DevCameraOcclusionMode = Enum.DevCameraOcclusionMode.Invisicam
 end)
@@ -6311,6 +6318,7 @@ TrialsSection:Dropdown({
 
 local TrialsLabel = TrialsSection:Label("Highest Floor: -")
 task.spawn(function()
+        if type(VkTk) ~= "string" or #VkTk < 12 then return end
     while getgenv().ValkyrieSession == SessionToken do
         local Highest, Best = Trials.Highest(), Trials.Progress("trials.room")
         local Lines = {
@@ -6567,6 +6575,7 @@ LuckySection:Slider({
 -- เช็คทุก 2 วิ: สุ่มได้ตัวใหม่ลงช่อง = รายการอัปเดตเอง (เดิมโหลดครั้งเดียวตอนรัน = ตัวใหม่เลือกไม่ได้ - ผู้ใช้ 2026-10-12)
 -- ไม่สร้างรายการใหม่ตอน dropdown เปิดอยู่ (ปุ่มถูกลบระหว่างกด = กดไม่ติด) รอบหน้าค่อยทำ
 task.spawn(function()
+        if type(VkTk) ~= "string" or #VkTk < 12 then return end
     if not (IsLobby and LoadLobby()) then return end
     local Shown = nil
     while getgenv().ValkyrieSession == SessionToken do
@@ -6763,6 +6772,7 @@ SynergySection:Label("Swap in: +20% Damage for 4s, every 10s")
 SynergySection:Label("Green = you own both, yellow = one")
 
 task.spawn(function()
+        if type(VkTk) ~= "string" or #VkTk < 12 then return end
     if not (IsLobby and LoadLobby()) then return end
     while getgenv().ValkyrieSession == SessionToken do
         local List = OwnedSlots()
@@ -7655,6 +7665,7 @@ HelpSection:Guide("How to view", {
 
 -- วนส่ง + อัปเดตข้อความสถานะ (ข้อความผ่าน OnUi - เธรดนี้ require โมดูลเกม)
 task.spawn(function()
+        if type(VkTk) ~= "string" or #VkTk < 12 then return end
     local Tick = 0
     task.wait(3)
     if Settings().WebsiteReport then pcall(Site.Report) end
