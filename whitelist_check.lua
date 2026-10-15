@@ -1,75 +1,16 @@
--- ══════════════════════════════════════════════════════════════════════════
---  Valkyrie Hub // loader
---
---  Paste this above the loadstring, never below it -- everything here is read
---  once, at the top of the run, and a global set afterwards arrives too late.
---
---      getgenv().LicenseKey = "YOUR-KEY"
---
---      loadstring(game:HttpGet("https://www.valkyriehub.net/api/raw/loading"))()
---
---  The key is only needed the first time. Once the server has verified it, it
---  is written to `Valkyrie Hub/MyKey/key.txt` and every later run picks it up
---  from there, so the LicenseKey line can be dropped.
---
---  ── Running the KAITAN build (ไก่ตัน) ──
---
---  One line above the loadstring:
---
---      getgenv().LicenseKey = "YOUR-KEY"
---      getgenv().Kaitan = true
---
---      loadstring(game:HttpGet("https://www.valkyriehub.net/api/raw/loading"))()
---
---  `Kaitan` is also where the build's own settings go, and a table means Kaitan
---  just the same, so settings and the switch are one line:
---
---      getgenv().Kaitan = { Slots = { "Cursed King", "Sung Jinwoo", "Hu Tao", "LYTH" } }
---
---  `true` runs on the settings saved from the last Kaitan run (or the build's
---  defaults), `false` forces the ordinary build. Settings set on the website
---  (Global Settings) override both.
---
---  Without it the run is the ordinary build (the menu hub), even for a key that
---  owns both. The one exception is a key that owns only the Kaitan build: it is
---  refused the ordinary one and falls through to Kaitan rather than a kick.
---
---  Nothing about the choice is remembered between runs: it is exactly what is
---  set above the loadstring. The Kaitan build carries it across its own
---  teleports (its queued chunk sets getgenv().Kaitan again).
---
---  The older pins still work. `Mode` wins over `Kaitan`, `Kaitan` over
---  `ValkyrieProduct`:
---
---      getgenv().Mode = "Kaitan"          -- or "KT" / "Normal"
---      getgenv().ValkyrieProduct = "anime-zero-kaitan"
---
---  Every pin only narrows what this place already offers. Naming a build the
---  place does not serve is ignored rather than obeyed, so a pin left in a saved
---  script cannot send the wrong loader to the wrong game.
---
---  ── Everything else that can be set from outside ──
---
---      LicenseKey / License / Key / ValkyrieKey   the key, any of the four
---      Kaitan                                     true / false / settings table
---      Mode                                       "Kaitan" / "KT" / "Normal"
---      ValkyrieProduct                            a full product slug
---      ValkyrieApproved                           (read only) the build this run got
---      ValkyrieHWID                               pin the machine id by hand
---      ValkyrieEndpoint                           replace the whitelist host
--- ══════════════════════════════════════════════════════════════════════════
-
 local genv = (typeof(getgenv) == "function" and getgenv()) or _G
 
--- The site fronts the whitelist check over HTTPS. Plain HTTP is refused by a
--- growing number of executors, so the raw-IP check.php is only tried when the
--- HTTPS route cannot be reached at all -- never when it answers with a verdict.
+-- The site fronts the whitelist check over HTTPS and talks to the database
+-- itself, server-side. The loader only ever reaches the public site, never the
+-- database host: a loader is served to every executor, so anything written here
+-- is public, and the database's address has no business being in it. A support
+-- fallback can still be pointed somewhere else per run with getgenv().ValkyrieEndpoint
+-- (use another HTTPS host, never a raw database IP).
 --
 -- The `www.` host is deliberate: the apex domain answers 301 to www, and not
 -- every executor's request() follows redirects.
 local ENDPOINTS = {
     "https://www.valkyriehub.net/api/whitelist/check",
-    "http://119.59.99.19/check.php",
 }
 if type(genv.ValkyrieEndpoint) == "string" and genv.ValkyrieEndpoint ~= "" then
     ENDPOINTS = { genv.ValkyrieEndpoint }
@@ -146,9 +87,8 @@ local AnimeZero = { "anime-zero", "anime-zero-kaitan" }
 --
 --     [94640181989498] = { "grow-a-chicken-fighter", "grow-a-chicken-fighter-kaitan" },
 --
--- Order is the default. Normal is listed first: nothing set = the menu hub, and
--- Kaitan is opted into (getgenv().Kaitan / Mode = "Kaitan"). A key that owns
--- only the Kaitan build is refused Normal and falls through to it.
+-- Normal is listed first: nothing set = the menu hub, every run. Kaitan is
+-- opted into with getgenv().Mode = "Kaitan" only.
 local Place = {
     [6918802270]      = "haze-seas",
     [14979402479]     = "haze-seas",
@@ -179,6 +119,7 @@ local Place = {
     [128853426265988] = AnimeZero,
     [132303256922720] = AnimeZero,
     [139663016529990] = AnimeZero,
+    [75234352859575] = AnimeZero,
     -- A Kaitan build that is its own game: one PlaceId, one product.
     -- [000000000000000] = "haze-seas-kaitan",
 
@@ -236,15 +177,11 @@ if hasFileSystem then
     end
 end
 
--- What was typed above the loadstring this run, before the saved session fills
--- anything in: only this picks the build. A restored settings table is not a
--- request for Kaitan -- it may be another game's.
-local TypedKaitan = genv.Kaitan
-
 -- The build's own settings go back into getgenv() here rather than being handed
 -- over directly, because the build reads getgenv().Kaitan and knows nothing
--- about this file. `true` and `false` are switches, not settings, so they make
--- room for the saved table too (the build only reads a table).
+-- about this file. getgenv().Kaitan only carries settings -- it never picks the
+-- build (getgenv() outlives a run, so a table restored here used to turn every
+-- re-run into Kaitan). Only getgenv().Mode does that, see Candidates below.
 if type(genv.Kaitan) ~= "table" then
     genv.Kaitan = type(Session.kaitan) == "table" and Session.kaitan or nil
 end
@@ -285,30 +222,19 @@ local Candidates do
         Candidates = {}
     end
 
-    -- Support and testers can pin one build when a place serves both. Accepts
-    -- either a full slug through ValkyrieProduct ("haze-seas-kaitan") or a
-    -- variant name through Mode ("Kaitan").
-    -- A pin naming a product this place does not serve is filtered out below.
-    local function variantOf(value)
-        if type(value) ~= "string" or value == "" then return nil end
+    -- getgenv().Mode is the only switch when a place serves both builds:
+    -- "Kaitan" (or "KT" / "ไก่ตัน") runs Kaitan, anything else -- including
+    -- nothing set -- runs the ordinary build (the hub), every run. The Kaitan
+    -- build copies Mode into its teleport queue, so it stays Kaitan across hops.
+    -- A place serving only one build ignores this (filtered out below).
+    local function isKaitan(value)
+        if type(value) ~= "string" then return false end
         local name = string.lower(trimSpaces(value))
-        if name == "kt" or name == "ไก่ตัน" or name == "ไก่" then return "kaitan" end
-        if name == "menu" or name == "hub" or name == "ธรรมดา" then return "normal" end
-        return name
+        return name == "kaitan" or name == "kt" or name == "ไก่ตัน" or name == "ไก่"
     end
 
-    local typed = nil
-    if TypedKaitan == true or type(TypedKaitan) == "table" then
-        typed = "kaitan"
-    elseif TypedKaitan == false then
-        typed = "normal"
-    end
-
-    -- Kaitan comes before ValkyrieProduct: older loaders wrote the approved
-    -- slug there and both builds still carry it through their teleport queue,
-    -- so it can be stale; what was typed this run must win.
-    local pinned = variantOf(genv.Mode) or typed or variantOf(genv.ValkyrieProduct)
-    if pinned then
+    local pinned = isKaitan(genv.Mode) and "kaitan" or "normal"
+    do
         local picked = {}
         for _, slug in ipairs(Candidates) do
             local info = Products[slug]
@@ -549,7 +475,7 @@ local function htmlReason(body)
     if string.find(body, "ไม่พบสคริปต์", 1, true) then
         return "Script not found on the server (wrong slug in Products table)"
     end
-    return "Server refused the script request (not public/active, or blocked executor)"
+    return "Server refused the script request (not public/active, or the licence ticket expired -- run again)"
 end
 
 -- Asks each endpoint in turn and returns the first decoded verdict. An endpoint
@@ -572,6 +498,11 @@ local function askServer(query)
 end
 
 local HWID = nil
+
+-- Proof from the server that this machine passed the whitelist for the product
+-- just approved. /api/raw serves a paid script only with it (two minutes,
+-- bound to HWID), so the script URL alone downloads nothing.
+local ScriptTicket = nil
 
 -- One ownership question about one product.
 local function askProduct(slug)
@@ -617,6 +548,7 @@ local function resolveProduct()
             -- Normal run into a pin that every later teleport obeyed, so a
             -- Kaitan buyer stayed on the menu for good.
             genv.ValkyrieApproved = slug
+            ScriptTicket = type(data.ticket) == "string" and data.ticket or nil
             genv.ValkyrieProduct = nil
             -- A Kaitan build re-runs itself after every teleport. Pointing it
             -- back here (not at its raw URL) keeps the key checked each time.
@@ -681,6 +613,168 @@ if #Candidates == 0 then
     return
 end
 
+-- Tell the site a dump guard tripped. The site logs the public IP it sees on
+-- this request -- the address of the machine actually connected to it -- ties
+-- it to the key/HWID, and alerts the owner so the key can be banned and the IP
+-- blocked. The IP is not sent from here on purpose: the client could forge it,
+-- the server cannot. Fire-and-forget; a failed report never blocks the kick.
+local function reportHook(reason)
+    if typeof(httpRequest) ~= "function" then return end
+    local okH, hwid = pcall(getHWID)
+    local okB, body = pcall(function()
+        return HttpService:JSONEncode({
+            token  = KEY,
+            hwid   = (okH and hwid) or "",
+            reason = reason or "hook",
+            place  = PlaceId,
+            job    = tostring(game.JobId),
+        })
+    end)
+    if not okB then return end
+    pcall(httpRequest, {
+        Url = "https://www.valkyriehub.net/api/whitelist/report",
+        Method = "POST",
+        Headers = { ["Content-Type"] = "application/json" },
+        Body = body,
+    })
+end
+
+-- ── Removing a tampered session ──
+--
+-- Nothing here waits: a hooked session is given no time at all (a dumper only
+-- needs a moment). Kick() can be swallowed by an anti-kick (a __namecall or
+-- hookfunction wrapper), so every removal also makes the session useless on the
+-- spot -- every child of workspace is destroyed, terrain cleared, and anything
+-- the server streams back in afterwards is removed as it arrives. A real kick
+-- makes the wipe moot; an eaten one leaves nothing to play.
+
+local function wipeWorkspace()
+    local function clear(child)
+        if child:IsA("Terrain") then
+            pcall(function() child:Clear() end)
+        elseif not child:IsA("Camera") then
+            pcall(function() child:Destroy() end)
+        end
+    end
+    pcall(function()
+        workspace.ChildAdded:Connect(function(child) task.defer(clear, child) end)
+    end)
+    for _, child in ipairs(workspace:GetChildren()) do clear(child) end
+end
+
+local function kickAndWipe(message)
+    pcall(function() LocalPlayer:Kick(message) end)
+    wipeWorkspace()
+end
+
+-- Bounce the session to a fresh server of the same place, without waiting on
+-- it: the teleport is started and the session wiped in the same instant (the
+-- player is leaving anyway). pcall only says the call did not throw, so a
+-- teleport that fails afterwards (TeleportInitFailed) kicks the moment the
+-- failure arrives; one that cannot be started kicks right away.
+local function bounceOrRemove(message)
+    local okTp, tp = pcall(game.GetService, game, "TeleportService")
+    local sent = false
+    if okTp and tp then
+        pcall(function()
+            tp.TeleportInitFailed:Connect(function(player)
+                if player == LocalPlayer then kickAndWipe(message) end
+            end)
+        end)
+        sent = pcall(function() tp:Teleport(game.PlaceId, LocalPlayer) end)
+    end
+    if sent then
+        wipeWorkspace()
+    else
+        kickAndWipe(message)
+    end
+end
+
+-- ── loadstring / HttpGet tamper check ──
+--
+-- A dumper grabs the script body one of two ways, and both are caught here
+-- before anything is fetched:
+--   * it replaces game's __namecall with a Lua function, which is how
+--     `game:HttpGet(...)` is intercepted; or
+--   * it hooks `loadstring` directly, to read the body this loader hands it a
+--     few lines below.
+-- A clean executor leaves both as C closures. When either is a Lua closure
+-- something hooked it, so the session is bounced once -- before the paid script
+-- is fetched OR handed to loadstring, so a hook learns nothing either way.
+--
+-- Guarded by a 60s marker on disk so this never becomes a kick/rejoin loop: an
+-- executor that natively implements one of these in Lua would be caught every
+-- time, so after one reset inside the window the run simply continues -- a
+-- persistent hook is the executor's, not a dumper's, and cannot be reset away.
+do
+    local getmt = rawget(genv, "getrawmetatable") or getrawmetatable
+    local isLua = rawget(genv, "islclosure") or islclosure
+    -- A dumper that wraps its hook in newcclosure reads islclosure == false and
+    -- so passes as a C closure. isfunctionhooked (Opiumware/Potassium and most
+    -- mainstream executors) sees through that wrap, so it is asked first when
+    -- present; islclosure stays the fallback for executors that lack it.
+    local isHookedFn = rawget(genv, "isfunctionhooked")
+    if typeof(getmt) == "function" and typeof(isLua) == "function" then
+        local function isHooked(fn)
+            if typeof(fn) ~= "function" then return false end
+            if typeof(isHookedFn) == "function" then
+                local okH, h = pcall(isHookedFn, fn)
+                if okH and h == true then return true end
+            end
+            local ok, isL = pcall(isLua, fn)
+            return ok and isL == true
+        end
+
+        local hooked = false
+        -- namecall metamethod (catches a game:HttpGet interceptor)
+        local okMt, mt = pcall(getmt, game)
+        if okMt and typeof(mt) == "table" then
+            hooked = isHooked(rawget(mt, "__namecall"))
+        end
+        -- loadstring itself (catches a hookfunction(loadstring, ...) dumper)
+        if not hooked then
+            hooked = isHooked(rawget(genv, "loadstring") or loadstring)
+        end
+
+        if hooked then
+            -- Log the attempt (and the IP the site sees) before doing anything else.
+            -- Fire-and-forget on its own thread: the request goes out now, but
+            -- nothing waits on the reply before the session is removed.
+            task.spawn(pcall, reportHook, "hook")
+
+            local marker = KEY_SUBFOLDER .. "/.reset"
+            local now = os.time()
+            local last = 0
+            if hasFileSystem and isfile(marker) then
+                last = tonumber(readfile(marker)) or 0
+            end
+            if now - last > 60 then
+                if hasFileSystem then pcall(writefile, marker, tostring(now)) end
+                -- Re-enter the same place: a fresh session with the transient
+                -- hook gone. queue_on_teleport (if the build set one up) re-runs
+                -- the loader on arrival. No waiting: workspace is wiped as the
+                -- teleport starts, and a teleport that fails or cannot start
+                -- kicks on the spot (wiped too, in case an anti-kick eats it).
+                bounceOrRemove("Valkyrie: session reset, please run again")
+                return
+            end
+            -- The hook survived the reset. A one-off hook a dumper installs for
+            -- a single run is gone after the bounce, so one still here is being
+            -- held in place -- never hand the script to a hooked session. This
+            -- is the whole point: without it, a dumper could hook, let the first
+            -- run bounce, and re-run inside the window to be served the body.
+            --
+            -- Not a loop: the bounce fires at most once per 60s; the rest of the
+            -- window the loader just stops here without fetching anything.
+            --
+            -- No client-side way to skip this: a getgenv() switch is something
+            -- any dumper can set too, so there is none.
+            kickAndWipe("Valkyrie: unsupported executor state")
+            return
+        end
+    end
+end
+
 local slug = resolveProduct()
 if not slug then return end
 
@@ -688,6 +782,12 @@ local scriptUrl = Products[slug] and Products[slug].script
 if not scriptUrl then
     fail("Script not found for product: " .. slug)
     return
+end
+
+if ScriptTicket then
+    local sep = string.find(scriptUrl, "?", 1, true) and "&" or "?"
+    scriptUrl = scriptUrl .. sep .. "ticket=" .. HttpService:UrlEncode(ScriptTicket)
+        .. "&hwid=" .. HttpService:UrlEncode(HWID or "")
 end
 
 local body = fetchScript(scriptUrl)
@@ -719,4 +819,8 @@ if not chunk then
     return
 end
 
-chunk()
+-- The ticket goes in as the chunk's argument: the launch guard /api/raw puts at
+-- the top of a licensed body runs only when it is handed the ticket that body
+-- was served for, so a copy dumped from memory and pasted in on its own does
+-- nothing (Website/lib/script-guard.ts).
+chunk(ScriptTicket)

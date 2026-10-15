@@ -1,0 +1,42 @@
+{
+  "az": {
+    "file": "Anime-Zero.lua",
+    "slug": "anime-zero"
+  },
+  "gfc": {
+    "file": "GFC.lua",
+    "slug": "grow-a-chicken-fighter"
+  },
+  "gfckt": {
+    "file": "GFCKT.lua",
+    "slug": "grow-a-chicken-fighter-kaitan"
+  },
+  "haze": {
+    "file": "HazeSea.lua",
+    "slug": "haze-seas"
+  },
+  "kt": {
+    "file": "Anime-Zero-KT.lua",
+    "slug": "anime-zero-kaitan"
+  },
+  "loader": {
+    "file": "whitelist_check.lua",
+    "slug": "loading"
+  },
+  "ltf": {
+    "file": "LTF.lua",
+    "slug": "ltf-lua"
+  },
+  "milenium": {
+    "file": "../UI-Library/Milenium/main.luau",
+    "slug": "milenium-lib"
+  },
+  "slayer": {
+    "file": "Slayer2.lua",
+    "slug": "slayer2"
+  },
+  "ste": {
+    "file": "STE.lua",
+    "slug": "steal-an-egg"
+  }
+}
