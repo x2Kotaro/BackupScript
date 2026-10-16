@@ -709,18 +709,15 @@ end
 do
     local getmt = rawget(genv, "getrawmetatable") or getrawmetatable
     local isLua = rawget(genv, "islclosure") or islclosure
-    -- A dumper that wraps its hook in newcclosure reads islclosure == false and
-    -- so passes as a C closure. isfunctionhooked (Opiumware/Potassium and most
-    -- mainstream executors) sees through that wrap, so it is asked first when
-    -- present; islclosure stays the fallback for executors that lack it.
-    local isHookedFn = rawget(genv, "isfunctionhooked")
+    -- Only islclosure: a Lua closure where the executor ships a C one means it
+    -- was replaced. isfunctionhooked was tried here too (to catch a hook wrapped
+    -- in newcclosure), but several mainstream executors wrap their OWN loadstring
+    -- / __namecall in newcclosure natively, so it reported every one of their
+    -- users as hooked and the guard wiped real customers. A newcclosure dumper
+    -- evading islclosure is covered by the seal + body checks instead.
     if typeof(getmt) == "function" and typeof(isLua) == "function" then
         local function isHooked(fn)
             if typeof(fn) ~= "function" then return false end
-            if typeof(isHookedFn) == "function" then
-                local okH, h = pcall(isHookedFn, fn)
-                if okH and h == true then return true end
-            end
             local ok, isL = pcall(isLua, fn)
             return ok and isL == true
         end
