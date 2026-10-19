@@ -77,7 +77,13 @@ def resolve(arg, targets):
     """short name / file name / path -> (short, path)"""
     key = arg.lower()
     if key in targets:
-        return key, os.path.join(SCRIPTS, targets[key]["file"])
+        f = targets[key]["file"]
+        path = os.path.join(SCRIPTS, f)
+        # The loader (whitelist_check.lua) lives at the repo root, not in
+        # Scripts/, so fall back to ROOT when it is not under Scripts/.
+        if not os.path.isfile(path) and os.path.isfile(os.path.join(ROOT, f)):
+            path = os.path.join(ROOT, f)
+        return key, path
     path = arg if os.path.isfile(arg) else os.path.join(SCRIPTS, arg)
     if not os.path.isfile(path):
         sys.exit(f"Unknown script '{arg}' - short names: {', '.join(sorted(targets)) or 'none yet'}")
