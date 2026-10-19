@@ -73,8 +73,10 @@ local Products = {
     },
 }
 
--- Every Anime Zero place (lobby, match servers) serves both builds.
-local AnimeZero = { "anime-zero", "anime-zero-kaitan" }
+-- Every Anime Zero place (lobby, match servers) serves both builds. The slug
+-- list is inlined at each entry below (no shared upvalue), and the real cause of
+-- the obfuscated "game not support" was the numeric KEYS, not the values -- see
+-- the Place comment below for the string-key fix.
 
 -- PlaceId -> product slug, or a list of slugs when one place can be served by
 -- more than one product (a Kaitan build living inside the same place as the
@@ -89,42 +91,47 @@ local AnimeZero = { "anime-zero", "anime-zero-kaitan" }
 --
 -- Normal is listed first: nothing set = the menu hub, every run. Kaitan is
 -- opted into with getgenv().Mode = "Kaitan" only.
+-- Keys are STRINGS, looked up with tostring(game.PlaceId). An obfuscator's
+-- number encoder mangled some large integer keys (wearedev got 114574503491412,
+-- 109151342576374 and 128853426265988 wrong -- the real lobby and match places --
+-- so an obfuscated loader reported "game not support" there while other places
+-- resolved). tostring(PlaceId) is exact on the executor (Luau prints the full
+-- integer) and string constants round-trip through the obfuscator unchanged.
 local Place = {
-    [6918802270]      = "haze-seas",
-    [14979402479]     = "haze-seas",
-    [99664616626491]  = "haze-seas",
-    [106600795455627] = "haze-seas",
+    ["6918802270"]      = "haze-seas",
+    ["14979402479"]     = "haze-seas",
+    ["99664616626491"]  = "haze-seas",
+    ["106600795455627"] = "haze-seas",
     -- Grow a Chicken Fighter serves both builds, Normal first (see above).
-    [94640181989498]  = { "grow-a-chicken-fighter", "grow-a-chicken-fighter-kaitan" },
-    [94939256104840]  = { "grow-a-chicken-fighter", "grow-a-chicken-fighter-kaitan" },
-    [107778070777162] = "steal-an-egg",
-    [133470009013038] = "steal-an-egg",
+    ["94640181989498"]  = { "grow-a-chicken-fighter", "grow-a-chicken-fighter-kaitan" },
+    ["94939256104840"]  = { "grow-a-chicken-fighter", "grow-a-chicken-fighter-kaitan" },
+    ["107778070777162"] = "steal-an-egg",
+    ["133470009013038"] = "steal-an-egg",
 
-    [16205713724] = "slayer2",
-    [17047024836] = "slayer2",
-    [75556147183481] = "slayer2",
-    [109676363279588] = "slayer2",
-    [130395143593224] = "slayer2",
-    [136406881576517] = "slayer2",
+    ["16205713724"] = "slayer2",
+    ["17047024836"] = "slayer2",
+    ["75556147183481"] = "slayer2",
+    ["109676363279588"] = "slayer2",
+    ["130395143593224"] = "slayer2",
+    ["136406881576517"] = "slayer2",
 
-    [118805555015549] = "loot-to-forge",
+    ["118805555015549"] = "loot-to-forge",
 
-    [114574503491412] = AnimeZero,
-    [75234352859575] = AnimeZero,
-    [96023089630459] = AnimeZero,
-    [97017097101354] = AnimeZero,
-    [109151342576374] = AnimeZero,
-    [113369844309540] = AnimeZero,
-    [126462205679010] = AnimeZero,
-    [128853426265988] = AnimeZero,
-    [132303256922720] = AnimeZero,
-    [139663016529990] = AnimeZero,
-    [75234352859575] = AnimeZero,
+    ["114574503491412"] = { "anime-zero", "anime-zero-kaitan" },
+    ["75234352859575"] = { "anime-zero", "anime-zero-kaitan" },
+    ["96023089630459"] = { "anime-zero", "anime-zero-kaitan" },
+    ["97017097101354"] = { "anime-zero", "anime-zero-kaitan" },
+    ["109151342576374"] = { "anime-zero", "anime-zero-kaitan" },
+    ["113369844309540"] = { "anime-zero", "anime-zero-kaitan" },
+    ["126462205679010"] = { "anime-zero", "anime-zero-kaitan" },
+    ["128853426265988"] = { "anime-zero", "anime-zero-kaitan" },
+    ["132303256922720"] = { "anime-zero", "anime-zero-kaitan" },
+    ["139663016529990"] = { "anime-zero", "anime-zero-kaitan" },
     -- A Kaitan build that is its own game: one PlaceId, one product.
-    -- [000000000000000] = "haze-seas-kaitan",
+    -- ["000000000000000"] = "haze-seas-kaitan",
 
     -- Same place serving both builds -- tried in the order listed.
-    -- [99664616626491] = { "haze-seas", "haze-seas-kaitan" },
+    -- ["99664616626491"] = { "haze-seas", "haze-seas-kaitan" },
 }
 
 local HttpService = game:GetService("HttpService")
@@ -213,7 +220,7 @@ end
 
 -- The candidate products for this place, always as a list.
 local Candidates do
-    local entry = Place[PlaceId]
+    local entry = Place[tostring(PlaceId)]
     if type(entry) == "table" then
         Candidates = entry
     elseif type(entry) == "string" then
@@ -478,13 +485,86 @@ local function htmlReason(body)
     return "Server refused the script request (not public/active, or the licence ticket expired -- run again)"
 end
 
--- Asks each endpoint in turn and returns the first decoded verdict. An endpoint
--- that answers -- valid or not -- ends the walk: only an unreachable endpoint,
--- or one that replies with something that is not JSON, falls through to the next.
-local function askServer(query)
+-- ── Request transport (v2) ──
+--
+-- The old path put the key in the GET query string, where it landed in the
+-- site's access logs, in executors that log request URLs, and in a plain
+-- remote-spy capture. The v2 path POSTs the fields ciphered instead: the key
+-- never travels in clear.
+--
+-- HONEST LIMIT: this loader is public, so TRANSPORT_KEY below is NOT a secret
+-- from anyone who reads it -- they can decode a captured payload the same way
+-- the server does. This stops the key leaking to logs and passive capture; it
+-- is not confidentiality against a determined dumper. The real secret stays
+-- server-side (the signed ticket the response carries). See the matching note
+-- in Website/lib/script-transport.ts.
+--
+-- The cipher is the same integer-only Park-Miller byte-add as the server, so it
+-- runs identically on Luau and desktop Lua. TRANSPORT_KEY must equal
+-- WHITELIST_TRANSPORT_KEY on the server (both default to this constant).
+local TRANSPORT_KEY = 1597463007
+local B64_ALPHA = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+
+local function base64encode(bytes)
+    local out, n, i = {}, #bytes, 1
+    while i <= n do
+        local b1 = bytes[i]
+        local b2 = bytes[i + 1]
+        local b3 = bytes[i + 2]
+        local c1 = math.floor(b1 / 4)
+        local c2 = (b1 % 4) * 16 + (b2 and math.floor(b2 / 16) or 0)
+        local c3 = b2 and ((b2 % 16) * 4 + (b3 and math.floor(b3 / 64) or 0)) or nil
+        local c4 = b3 and (b3 % 64) or nil
+        out[#out + 1] = B64_ALPHA:sub(c1 + 1, c1 + 1)
+        out[#out + 1] = B64_ALPHA:sub(c2 + 1, c2 + 1)
+        out[#out + 1] = c3 and B64_ALPHA:sub(c3 + 1, c3 + 1) or "="
+        out[#out + 1] = c4 and B64_ALPHA:sub(c4 + 1, c4 + 1) or "="
+        i = i + 3
+    end
+    return table.concat(out)
+end
+
+-- Encrypt `plain` under per-request `r` and Base64 the result. Mirrors
+-- encodeTransport() in Website/lib/script-transport.ts exactly.
+local function transportEncode(plain, r)
+    local A, M = 48271, 2147483647
+    local st = (TRANSPORT_KEY + r) % M
+    if st <= 0 then st = st + M - 1 end
+    local enc = {}
+    for i = 1, #plain do
+        st = (A * st) % M
+        enc[i] = (string.byte(plain, i) + (st % 256)) % 256
+    end
+    return base64encode(enc)
+end
+
+-- POST the ciphered envelope. nil on any failure, so the caller falls back to
+-- the old clear GET -- a server that has not deployed v2 yet, or an executor
+-- whose request() cannot POST, still validates.
+local function postEncoded(url, inner)
+    if not httpRequest then return nil end
+    local r = math.random(1, 2147483646)
+    local enc = transportEncode(inner, r)
+    local bodyStr = "v=2&r=" .. r .. "&d=" .. HttpService:UrlEncode(enc)
+    local ok, res = pcall(httpRequest, {
+        Url = url,
+        Method = "POST",
+        Headers = { ["Content-Type"] = "application/x-www-form-urlencoded" },
+        Body = bodyStr,
+    })
+    if ok and res and res.Body then return res.Body end
+    return nil
+end
+
+-- Asks each endpoint in turn and returns the first decoded verdict. v2 (ciphered
+-- POST) is tried first on each endpoint, then the clear GET as a fallback. An
+-- endpoint that answers -- valid or not -- ends the walk: only an unreachable
+-- endpoint, or one that replies with something that is not JSON, falls through
+-- to the next.
+local function askServer(clearQuery, inner)
     local lastError = "Can't connect to the server."
     for _, endpoint in ipairs(ENDPOINTS) do
-        local body = httpGet(endpoint .. query)
+        local body = (inner and postEncoded(endpoint, inner)) or httpGet(endpoint .. clearQuery)
         if body then
             local ok, data = pcall(function() return HttpService:JSONDecode(body) end)
             if ok and type(data) == "table" then
@@ -520,7 +600,20 @@ local function askProduct(slug)
         PlaceId,
         HttpService:UrlEncode(HWID)
     )
-    return askServer(query)
+    -- Same fields as the clear query, plus `t` (os.time, seconds) and `n`
+    -- (a nonce) so the server rejects a replayed envelope outside its window.
+    -- This urlencoded string is what the server sees after it deciphers `d`.
+    local inner = ("token=%s&product=%s&map=%s&variant=%s&place_id=%d&hwid=%s&t=%d&n=%d"):format(
+        HttpService:UrlEncode(KEY),
+        HttpService:UrlEncode(slug),
+        HttpService:UrlEncode(info.map),
+        HttpService:UrlEncode(info.variant or "Normal"),
+        PlaceId,
+        HttpService:UrlEncode(HWID),
+        os.time(),
+        math.random(0, 2147483646)
+    )
+    return askServer(query, inner)
 end
 
 -- Walks the candidate products and stops at the first one this key owns. Only
