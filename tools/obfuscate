@@ -1,0 +1,122 @@
+#!/usr/bin/env python3
+"""Obfuscate a Luau script with the vendored Clyde VM (tools/clyde).
+
+    tools/obfuscate Scripts/GFC.lua -o /tmp/GFC.obf.lua
+    tools/obfuscate Scripts/GFC.lua            # prints to stdout
+
+Clyde's VM drops the chunk's top-level `...`, so any guard that reads `...`
+(the ticket check embedded at the top of Anime-Zero.lua) must stay OUTSIDE the
+obfuscation. Put this marker line in the source right after such a prologue:
+
+    --!vkobf:keep-above
+
+Everything up to and including the marker is emitted unchanged; everything
+below it is VM-obfuscated. With no marker the whole file is obfuscated (fine for
+scripts with no `...` guard). The server seal still wraps the result and passes
+the ticket as `...`, which the plain prologue above the marker reads.
+
+Needs `node` on PATH. Verifies the result with `luau-compile` when available.
+"""
+import argparse
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+
+ROOT = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+CLYDE = os.path.join(ROOT, "tools", "clyde", "dist", "cli", "obfuscate.js")
+MARKER = "--!vkobf:keep-above"
+
+
+def die(msg):
+    sys.exit(f"obfuscate: {msg}")
+
+
+def strip_banner(text):
+    """Drop a leading `--[[ ... ]]` Clyde banner comment block, if present."""
+    if not text.lstrip().startswith("--[["):
+        return text
+    lead = text[: len(text) - len(text.lstrip())]
+    rest = text[len(lead):]
+    end = rest.find("]]")
+    if end == -1:
+        return text
+    return rest[end + 2:].lstrip("\n")
+
+
+def obfuscate(src_path, keep_marker=MARKER):
+    if not os.path.isfile(CLYDE):
+        die(f"vendored Clyde not found at {CLYDE} (see tools/clyde/SOURCE.md)")
+    if not shutil.which("node"):
+        die("node not found on PATH")
+
+    with open(src_path, encoding="utf-8") as f:
+        source = f.read()
+
+    # Split off a plain prologue at the marker, if there is one.
+    prologue = ""
+    body = source
+    idx = source.find(keep_marker)
+    if idx != -1:
+        nl = source.find("\n", idx)
+        cut = len(source) if nl == -1 else nl + 1
+        prologue = source[:cut]
+        body = source[cut:]
+
+    with tempfile.TemporaryDirectory() as tmp:
+        inp = os.path.join(tmp, "in.luau")
+        out = os.path.join(tmp, "out.luau")
+        with open(inp, "w", encoding="utf-8") as f:
+            f.write(body)
+        run = subprocess.run(
+            ["node", CLYDE, "--vm", "-o", out, inp],
+            capture_output=True, text=True,
+        )
+        if run.returncode != 0 or not os.path.isfile(out):
+            die(f"Clyde failed:\n{run.stderr or run.stdout}")
+        with open(out, encoding="utf-8") as f:
+            obf = strip_banner(f.read())
+
+    result = (prologue + obf) if prologue else obf
+
+    # Verify the assembled result compiles as Luau (best effort).
+    luau = shutil.which("luau-compile")
+    if luau:
+        with tempfile.NamedTemporaryFile("w", suffix=".luau", delete=False, encoding="utf-8") as f:
+            f.write(result)
+            check = f.name
+        try:
+            c = subprocess.run([luau, "--only-parse", check], capture_output=True, text=True)
+            if c.returncode != 0:
+                # --only-parse is a newer flag; fall back to a full compile.
+                c = subprocess.run([luau, check], capture_output=True, text=True)
+            if c.returncode != 0:
+                die(f"obfuscated output does not compile:\n{(c.stderr or c.stdout)[:400]}")
+        finally:
+            os.unlink(check)
+
+    return result
+
+
+def main():
+    ap = argparse.ArgumentParser(description="Obfuscate a Luau script with the vendored Clyde VM.")
+    ap.add_argument("input", help="path to the .lua/.luau source")
+    ap.add_argument("-o", "--output", help="write here (default: stdout)")
+    args = ap.parse_args()
+
+    if not os.path.isfile(args.input):
+        die(f"no such file: {args.input}")
+
+    result = obfuscate(args.input)
+
+    if args.output:
+        with open(args.output, "w", encoding="utf-8") as f:
+            f.write(result)
+        sys.stderr.write(f"obfuscate: {args.input} -> {args.output} ({len(result)} B)\n")
+    else:
+        sys.stdout.write(result)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,367 @@
+#!/usr/bin/env python3
+"""Push a script from Scripts/ to valkyriehub.net (no copy-paste into the admin page).
+
+    push                       # macOS dialogs: pick a script, pick where it goes, confirm
+    push --list                # table: every script on the site, its short name, in sync or not
+    push kt                    # push by short name straight away (tools/push-targets.json)
+    push kt ltf                # several at once
+    push Scripts/X.lua         # a file path works too; a new file asks which site script it is
+    push kt --dry-run          # show where it would go, send nothing
+    push X.lua --slug some-slug  # choose / change where a file goes (saved for next time)
+
+`push` = /opt/homebrew/bin/push -> this file; ~/Applications/Valkyrie Push.app runs `push` too. tools/push-targets.json maps a short name
+to { file, slug }; a file with no entry yet shows the site's scripts to pick from and
+the choice is saved under a short name made from the file name.
+Only the content of a script that already exists changes (create it once in the
+admin page). Token: env VALKYRIE_PUSH_TOKEN or ~/.config/valkyrie/push-token, same
+value as SCRIPT_PUSH_TOKEN on the server. Executors get the new build within ~5
+minutes (edge cache on /api/raw).
+"""
+import argparse
+import base64
+import hashlib
+import json
+import os
+import subprocess
+import sys
+import urllib.error
+import urllib.request
+
+SITE = os.environ.get("VALKYRIE_SITE", "https://www.valkyriehub.net")
+TOKEN_FILE = os.path.expanduser("~/.config/valkyrie/push-token")
+ROOT = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+TARGETS = os.path.join(ROOT, "tools", "push-targets.json")
+SCRIPTS = os.path.join(ROOT, "Scripts")
+
+
+def token():
+    value = os.environ.get("VALKYRIE_PUSH_TOKEN", "")
+    if not value and os.path.isfile(TOKEN_FILE):
+        with open(TOKEN_FILE) as f:
+            value = f.read()
+    value = value.strip()
+    if not value:
+        sys.exit(f"No token: set VALKYRIE_PUSH_TOKEN or write it to {TOKEN_FILE}")
+    return value
+
+
+def call(method, body=None):
+    request = urllib.request.Request(
+        f"{SITE}/api/admin/scripts/push",
+        data=json.dumps(body).encode() if body is not None else None,
+        method=method,
+        headers={"Content-Type": "application/json", "Authorization": f"Bearer {token()}", "User-Agent": "valkyrie-push/1"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=60) as response:
+            return json.loads(response.read() or b"{}")
+    except urllib.error.HTTPError as error:
+        sys.exit(f"{method} failed: HTTP {error.code} {error.read().decode(errors='replace')[:300]}")
+    except urllib.error.URLError as error:
+        sys.exit(f"{method} failed: {error.reason}")
+
+
+def load_targets():
+    """short name -> { file, slug }"""
+    if os.path.isfile(TARGETS):
+        with open(TARGETS) as f:
+            return json.load(f)
+    return {}
+
+
+def short_of(name):
+    return os.path.splitext(name)[0].lower().replace(" ", "-")
+
+
+def resolve(arg, targets):
+    """short name / file name / path -> (short, path)"""
+    key = arg.lower()
+    if key in targets:
+        return key, os.path.join(SCRIPTS, targets[key]["file"])
+    path = arg if os.path.isfile(arg) else os.path.join(SCRIPTS, arg)
+    if not os.path.isfile(path):
+        sys.exit(f"Unknown script '{arg}' - short names: {', '.join(sorted(targets)) or 'none yet'}")
+    name = os.path.basename(path)
+    for short, entry in targets.items():
+        if entry["file"] == name:
+            return short, path
+    return short_of(name), path
+
+
+def save_targets(targets):
+    with open(TARGETS, "w") as f:
+        json.dump(dict(sorted(targets.items())), f, indent=2)
+        f.write("\n")
+
+
+def sha(path):
+    with open(path, "rb") as f:
+        return hashlib.sha256(f.read()).hexdigest()
+
+
+def site_scripts():
+    return call("GET").get("scripts", [])
+
+
+def show(scripts, targets):
+    by_slug = {}
+    for short, entry in targets.items():
+        by_slug.setdefault(entry["slug"], []).append((short, entry["file"]))
+    print(f"{'#':>3}  {'push':<8} {'slug':<32} {'updated':<16}  local file")
+    for i, s in enumerate(scripts, 1):
+        entries = by_slug.get(s["slug"], [])
+        shorts = ",".join(short for short, _ in entries) or "-"
+        notes = []
+        for _, name in entries:
+            path = os.path.join(SCRIPTS, name)
+            state = "missing" if not os.path.isfile(path) else ("same" if sha(path) == s["sha256"] else "CHANGED - push it")
+            notes.append(f"{name} ({state})")
+        flags = "" if s["isActive"] and s["isPublic"] else "  [" + ("off" if not s["isActive"] else "private") + "]"
+        print(f"{i:>3}  {shorts:<8} {s['slug']:<32} {str(s['updatedAt'])[:16]:<16}  {', '.join(notes) or '-'}{flags}")
+    for short, entry in targets.items():
+        if entry["slug"] not in {s["slug"] for s in scripts}:
+            print(f"  !  {short} -> {entry['slug']}: no such slug on the site any more")
+
+
+def pick(scripts, name, path):
+    # same body already on the site = that is where it lives
+    digest = sha(path)
+    same = [s for s in scripts if s["sha256"] == digest]
+    if len(same) == 1:
+        print(f"{name}: the site's '{same[0]['slug']}' has this exact build - using it")
+        return same[0]["slug"]
+    if not sys.stdin.isatty():
+        show(scripts, load_targets())
+        sys.exit(f"No site script saved for {name}: run again with --slug <slug>")
+    show(scripts, load_targets())
+    while True:
+        answer = input(f"Which script is {name}? number or slug (empty = cancel): ").strip()
+        if not answer:
+            sys.exit("Cancelled")
+        if answer.isdigit() and 1 <= int(answer) <= len(scripts):
+            return scripts[int(answer) - 1]["slug"]
+        if answer in {s["slug"] for s in scripts}:
+            return answer
+        print("Not a script on the site")
+
+
+def obfuscate_to_temp(path):
+    """Run tools/obfuscate on `path`, returning a temp file with the obf result."""
+    import tempfile
+    tool = os.path.join(ROOT, "tools", "obfuscate")
+    out = tempfile.NamedTemporaryFile("w", suffix=".luau", delete=False).name
+    result = subprocess.run([sys.executable, tool, path, "-o", out], capture_output=True, text=True)
+    if result.returncode != 0:
+        sys.exit(f"obfuscation failed:\n{result.stderr.strip() or result.stdout.strip()}")
+    sys.stderr.write(result.stderr)
+    return out
+
+
+def syntax_ok(path):
+    luac = subprocess.run(["which", "luac"], capture_output=True, text=True).stdout.strip()
+    if not luac and os.path.isfile("/opt/homebrew/bin/luac"):
+        luac = "/opt/homebrew/bin/luac"
+    if not luac:
+        return True
+    result = subprocess.run([luac, "-p", path], capture_output=True, text=True)
+    if result.returncode != 0:
+        print(result.stderr.strip(), file=sys.stderr)
+    return result.returncode == 0
+
+
+
+# ---------- macOS dialogs (osascript) ----------
+
+class Cancelled(Exception):
+    pass
+
+
+def osa(source, *argv):
+    result = subprocess.run(["osascript", "-e", source, *argv], capture_output=True, text=True)
+    if result.returncode != 0:
+        if "-128" in result.stderr:  # user pressed Cancel
+            raise Cancelled()
+        raise RuntimeError(result.stderr.strip())
+    return result.stdout.rstrip("\n")
+
+
+CHOOSE = """on run argv
+    set theItems to items 3 thru -1 of argv
+    set picked to choose from list theItems with title "Valkyrie Push" with prompt (item 1 of argv) default items {item 2 of argv} OK button name "Next" cancel button name "Cancel"
+    if picked is false then error number -128
+    return item 1 of picked
+end run"""
+
+
+def choose(prompt, items, default=None):
+    return osa(CHOOSE, prompt, default if default in items else items[0], *items)
+
+
+def ask(message, button):
+    osa("""on run argv
+    display dialog (item 1 of argv) with title "Valkyrie Push" buttons {"Cancel", item 2 of argv} default button 2 cancel button 1
+end run""", message, button)
+
+
+def alert(message):
+    try:
+        osa("""on run argv
+    display dialog (item 1 of argv) with title "Valkyrie Push" buttons {"OK"} default button 1 with icon caution
+end run""", message)
+    except Cancelled:
+        pass
+
+
+def notify(message):
+    try:
+        osa("""on run argv
+    display notification (item 1 of argv) with title "Valkyrie Push" sound name "Glass"
+end run""", message)
+    except (Cancelled, RuntimeError):
+        pass
+
+
+def choose_file():
+    path = osa("""on run argv
+    set picked to choose file with prompt "Script to push" default location (POSIX file (item 1 of argv))
+    return POSIX path of picked
+end run""", SCRIPTS)
+    return path
+
+
+def ui(scripts, targets):
+    by_slug = {s["slug"]: s for s in scripts}
+    rows = []
+    for short, entry in sorted(targets.items()):
+        path = os.path.join(SCRIPTS, entry["file"])
+        live = by_slug.get(entry["slug"])
+        changed = os.path.isfile(path) and (not live or sha(path) != live["sha256"])
+        rows.append((not changed, short, entry, path, changed))
+    rows.sort()
+    labels, lookup = [], {}
+    for _, short, entry, path, changed in rows:
+        label = f"{'●' if changed else '○'}  {short}  —  {entry['file']}{'   (changed)' if changed else ''}"
+        labels.append(label)
+        lookup[label] = (short, path)
+    OTHER = "+  Another file…"
+    labels.append(OTHER)
+
+    picked = choose("Which script? (● = changed, not on the site yet)", labels, labels[0])
+    if picked == OTHER:
+        path = choose_file()
+        short, path = resolve(path, targets)
+    else:
+        short, path = lookup[picked]
+    name = os.path.basename(path)
+
+    # where it goes: every script on the site, the saved one first
+    saved = (targets.get(short) or {}).get("slug")
+    if not saved:
+        digest = sha(path)
+        same = [s["slug"] for s in scripts if s["sha256"] == digest]
+        saved = same[0] if len(same) == 1 else None
+    dest_labels = {}
+    for s in scripts:
+        label = f"{s['slug']}   ({s['bytes']:,} bytes, {str(s['updatedAt'])[:10]})" + ("   ← saved" if s["slug"] == saved else "")
+        dest_labels[label] = s["slug"]
+    ordered = sorted(dest_labels, key=lambda l: (dest_labels[l] != saved, dest_labels[l]))
+    slug = dest_labels[choose(f"Push {name} to which script on the site?", ordered, ordered[0])]
+
+    if not syntax_ok(path):
+        alert(f"{name}: Lua syntax check failed - not pushed.")
+        return
+    with open(path, "rb") as f:
+        data = f.read()
+    live = by_slug[slug]
+    if hashlib.sha256(data).hexdigest() == live["sha256"]:
+        notify(f"{slug} already has this build")
+        return
+    ask(f"Push {name}\n→ {SITE}/api/raw/{slug}\n\n{len(data):,} bytes (site has {live['bytes']:,} from {str(live['updatedAt'])[:16]})\n\nCustomers get it on their next join within ~5 min.", "Push")
+
+    if targets.get(short) != {"file": name, "slug": slug}:
+        targets[short] = {"file": name, "slug": slug}
+        save_targets(targets)
+    reply = call("POST", {"slug": slug, "contentB64": base64.b64encode(data).decode()})
+    notify(f"Pushed {name} → {slug}" if reply.get("changed") else f"{slug} unchanged")
+    print(f"{short}: {name} -> {slug} {'pushed' if reply.get('changed') else 'unchanged'}")
+
+
+def push_one(arg, args, scripts, targets):
+    short, path = resolve(arg, targets)
+    name = os.path.basename(path)
+    slugs = {s["slug"] for s in scripts}
+    slug = args.slug or (targets.get(short) or {}).get("slug")
+    if slug and slug not in slugs:
+        sys.exit(f"'{slug}' is not a script on the site (run: push)")
+    if not slug:
+        slug = pick(scripts, name, path)
+    if targets.get(short) != {"file": name, "slug": slug}:
+        targets[short] = {"file": name, "slug": slug}
+        save_targets(targets)
+        print(f"Saved: push {short} -> {name} -> {slug}")
+
+    if args.obf:
+        # Obfuscate locally with the vendored Clyde VM (tools/obfuscate) before
+        # upload. The obfuscated body replaces the source on the site; the server
+        # seal still wraps it. tools/obfuscate runs its own luau parse check, so
+        # the luac 5.5 check here (which rejects valid Luau) is skipped.
+        obf_path = obfuscate_to_temp(path)
+        name = os.path.basename(path) + " (obf)"
+        path = obf_path
+    elif not args.no_check and not syntax_ok(path):
+        sys.exit(f"{name}: syntax check failed - not pushed (--no-check to push anyway)")
+    with open(path, "rb") as f:
+        data = f.read()
+    live = next(s for s in scripts if s["slug"] == slug)
+    if hashlib.sha256(data).hexdigest() == live["sha256"]:
+        print(f"{short}: {slug} already has this build")
+        return
+    print(f"{short}: {name} -> {slug}  ({len(data):,} bytes, site has {live['bytes']:,} from {str(live['updatedAt'])[:16]})")
+    if args.dry_run:
+        return
+    reply = call("POST", {"slug": slug, "contentB64": base64.b64encode(data).decode()})
+    if reply.get("changed"):
+        print(f"{short}: pushed - live for new joins within ~5 min")
+    else:
+        print(f"{short}: unchanged")
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Push scripts to valkyriehub.net")
+    parser.add_argument("names", nargs="*", help="short names (kt, ltf...) or file paths; none = dialogs")
+    parser.add_argument("--list", action="store_true", help="print the table instead of opening dialogs")
+    parser.add_argument("--slug", help="push to this slug (one file only; remembered)")
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--no-check", action="store_true", help="skip the luac syntax check")
+    parser.add_argument("--obf", action="store_true", help="obfuscate with the vendored Clyde VM (tools/obfuscate) before pushing")
+    args = parser.parse_args()
+    if args.slug and len(args.names) != 1:
+        sys.exit("--slug goes with exactly one script")
+
+    targets = load_targets()
+    dialogs = not args.names and not args.list and sys.platform == "darwin"
+    try:
+        scripts = site_scripts()
+    except SystemExit as error:
+        if dialogs:
+            alert(str(error))
+        raise
+    if not args.names:
+        if not dialogs:
+            show(scripts, targets)
+            print("\npush <name>   e.g. push " + (sorted(targets)[0] if targets else "Scripts/X.lua"))
+            return
+        try:
+            ui(scripts, targets)
+        except Cancelled:
+            pass
+        except SystemExit as error:
+            alert(str(error))
+            raise
+        return
+    for arg in args.names:
+        push_one(arg, args, scripts, targets)
+
+
+if __name__ == "__main__":
+    main()

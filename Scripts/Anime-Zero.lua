@@ -2,9 +2,13 @@ local VkTk = ...
 do
     local g = (getgenv and getgenv()) or _G
     local t = g[string.char(0, 0, 114, 116)]
-    local ok = type(t) == "table" and type(t[1]) == "number" and (t[1] % 2147483647 * 48271) % 2147483647 == t[2]
+    local ok = type(t) == "table" and type(t[1]) == "number" and (t[1] % tonumber("2147483647") * tonumber("48271")) % tonumber("2147483647") == t[2]
     if not ok or type(VkTk) ~= "string" or #VkTk < 12 then return end
 end
+--!vkobf:keep-above
+-- ^ tools/obfuscate keeps everything above this line PLAIN: the ticket guard
+-- reads the chunk vararg `...`, which the Clyde VM does not forward. Everything
+-- below is VM-obfuscated. Do not remove or reorder without reading tools/obfuscate.
 pcall(function()
     game.Players.LocalPlayer.DevCameraOcclusionMode = Enum.DevCameraOcclusionMode.Invisicam
 end)
@@ -50,7 +54,7 @@ local function ResolveScale()
     local t = g[string.char(0, 0, 114, 116)]
     if type(t) ~= "table" then return false end
     local a = t[1]
-    return type(a) == "number" and (48271 * (a % 2147483647)) % 2147483647 == t[2]
+    return type(a) == "number" and (tonumber("48271") * (a % tonumber("2147483647"))) % tonumber("2147483647") == t[2]
 end
 local function NormalizeTick()
     local g = (getgenv and getgenv()) or _G
@@ -58,12 +62,12 @@ local function NormalizeTick()
     if type(t) ~= "table" then return false end
     local a, b = t[1], t[2]
     if type(a) ~= "number" or type(b) ~= "number" then return false end
-    return (a % 2147483647 * 48271 - b) % 2147483647 == 0
+    return (a % tonumber("2147483647") * tonumber("48271") - b) % tonumber("2147483647") == 0
 end
 do
     local g = (getgenv and getgenv()) or _G
     local t = g[string.char(0, 0, 114, 116)]
-    if type(t) ~= "table" or type(t[1]) ~= "number" or (t[1] % 2147483647 * 48271) % 2147483647 ~= t[2] then
+    if type(t) ~= "table" or type(t[1]) ~= "number" or (t[1] % tonumber("2147483647") * tonumber("48271")) % tonumber("2147483647") ~= t[2] then
         pcall(function() Players.LocalPlayer:Kick("\226\128\139") end)
         return
     end
@@ -168,6 +172,7 @@ local DefaultSettings = {
         ["AutoAttack"] = true,
         ["AttackPosition"] = "Orbit",     -- Above / Below / Orbit
         ["PositionHeight"] = 5,           -- studs เหนือ/ใต้เป้า (Above / Below / Orbit)
+        ["BossLift"] = 0,                 -- ยกสูงตอนตีบอส (BossSafeY) 0 = สูงเท่ามอนปกติ (Height Offset) - key ใหม่แทน BossHeight (ค่า 12 ที่เซฟไว้แล้วยังสูงไป)
         ["OrbitRadius"] = 8,
         ["OrbitSpeed"] = 10,
         ["TpStep"] = 15,                  -- ในแมตช์: วาปทีละกี่ studs ต่อเฟรม (0 = บินลื่นแบบเดิม 65/วิ)
@@ -178,6 +183,8 @@ local DefaultSettings = {
         ["UltimateTarget"] = "Boss Only", -- Any Enemy / Boss Only
         ["AutoCollectDrops"] = false,
         ["HealBelowHP"] = 40,             -- % เลือด (0 = ไม่เก็บ)
+        ["AutoBlessing"] = true,          -- Escape / Raid Evil Reflection: เลือกการ์ด blessing เอง
+        ["BlessingFocus"] = "Damage",     -- Damage / Survival
 
         -- Auto Summon (lobby)
         ["AutoSummon"] = false,
@@ -189,7 +196,11 @@ local DefaultSettings = {
         ["AutoTraitReroll"] = false,
         ["TraitCharacter"] = "",
         ["TraitKeep"] = { },
+        ["TraitBulk"] = true,             -- สุ่มรวด (bulkRollTrait สูงสุด 1000 ครั้ง/คำขอ server หยุดเองเมื่อได้ตัวที่เก็บ)
         ["AutoEmote"] = false,
+        ["AutoBuyEmote"] = false,
+        ["EmoteBuyList"] = { },           -- ชื่อท่าทาง (emotesConfig name) ที่จะซื้อตรงจากร้าน
+        ["EmoteBuyCurrency"] = "Dice",    -- Dice (rolls) / Lucky Spins
         ["AutoConvertGems"] = false,
         ["KeepGems"] = 0,
 
@@ -222,6 +233,8 @@ local DefaultSettings = {
         ["AutoClaimQuests"] = true,
         ["AutoClaimAchievements"] = true,
         ["AutoClaimLevelRoad"] = true,
+        ["AutoClaimSeasonPass"] = true,
+        ["AutoClaimDailyGift"] = true,
         ["AutoClaimGroup"] = true,
         ["AutoEnterAfk"] = false,
         ["AutoDelivery"] = true,
@@ -1279,13 +1292,18 @@ Library:AddLanguage("th", {
     ["Emote Shop"] = "ร้านท่าทาง",
     ["Auto Purchase Emote"] = "ซื้อท่าทางอัตโนมัติ",
     ["Lobby only - rolls an emote whenever you have 5 dice rolls"] = "ใช้ใน lobby - สุ่มท่าทางทุกครั้งที่มีลูกเต๋า 5 ลูก",
+    ["Bulk Roll"] = "สุ่มรวด",
+    ["Up to 1000 rolls per request - the server stops by itself on a kept trait or any Mythic (much faster than one by one)"] = "สุ่มสูงสุด 1000 ครั้งต่อคำขอ - server หยุดเองเมื่อได้ Trait ที่เก็บหรือ Mythic (เร็วกว่าทีละครั้งมาก)",
+    ["Auto Buy Emote"] = "ซื้อท่าทางที่เลือกอัตโนมัติ",
+    ["Lobby only - buys the picked emotes straight from the shop (skips owned ones and what you can't afford)"] = "ใช้ใน lobby - ซื้อท่าทางที่เลือกจากร้านตรง ๆ (ข้ามตัวที่มีแล้วและตัวที่เงินไม่พอ)",
+    ["Emotes to Buy"] = "ท่าทางที่จะซื้อ",
     ["Auto Convert Gems to Lucky Spins"] = "แลก Gems เป็น Lucky Spin อัตโนมัติ",
     ["Lobby only - 100 gems = 1 Lucky Spin"] = "ใช้ใน lobby - 100 gems = 1 Lucky Spin",
     ["Keep Gems"] = "เก็บ Gems ไว้",
     ["Never convert below this many gems"] = "ไม่แลกจน gems เหลือต่ำกว่าค่านี้",
     ["Leave"] = "ออก",
     ["Locked acts fall back to the highest one you unlocked"] = "Act ที่ยังไม่ปลด จะใช้ Act สูงสุดที่ปลดแล้วแทน",
-    ["Options follow the mode - Raid is Nightmare only"] = "ตัวเลือกเปลี่ยนตามโหมด - Raid มีแค่ Nightmare",
+    ["Options follow the mode - Raid is Nightmare only (Evil Reflection lets you pick)"] = "ตัวเลือกเปลี่ยนตามโหมด - Raid มีแค่ Nightmare (Evil Reflection เลือกได้)",
     ["Create a solo room in the lobby, then Retry / Leave when the match ends"] = "สร้างห้องเดี่ยวใน lobby แล้วเล่นซ้ำ / ออก เมื่อจบเกม",
     ["Auto Battle"] = "ต่อสู้อัตโนมัติ",
     ["Trials"] = "Trials",
@@ -1312,6 +1330,8 @@ Library:AddLanguage("th", {
     ["Above / Below = hover over or under the target, Orbit = circle above its head"] = "ด้านบน / ด้านล่าง = ลอยเหนือหรือใต้เป้า, วนรอบ = หมุนเป็นวงเหนือหัวเป้า",
     ["Height Offset"] = "ระยะสูง/ต่ำ",
     ["Studs above / below the target (Above, Below, Orbit)"] = "ห่างเหนือ / ใต้เป้ากี่ studs (ด้านบน, ด้านล่าง, วนรอบ)",
+    ["Boss Height"] = "ความสูงตอนตีบอส",
+    ["Extra lift over a boss's feet (0 = same height as normal enemies) - higher dodges more attacks, M1 lands less"] = "ยกตัวสูงขึ้นตอนตีบอส (0 = สูงเท่ามอนปกติ) - สูง = หลบท่าบอสได้มากขึ้น แต่ M1 โดนน้อยลง",
     ["Orbit Radius"] = "รัศมีวนรอบ",
     ["How far from the target you circle (Orbit)"] = "วนห่างจากเป้าแค่ไหน (วนรอบ)",
     ["Orbit Speed"] = "ความเร็ววนรอบ",
@@ -1335,6 +1355,12 @@ Library:AddLanguage("th", {
     ["Boss Only"] = "บอสเท่านั้น",
     ["Auto Collect Drops"] = "เก็บดรอปอัตโนมัติ",
     ["Pick up cash drops once the area is clear"] = "เก็บเงินที่ดรอปเมื่อเคลียร์ศัตรูในพื้นที่หมด",
+    ["Auto Pick Blessing"] = "เลือกการ์ด Blessing อัตโนมัติ",
+    ["Escape / Evil Reflection - picks a blessing card as soon as the 3 cards show up (order from Blessing Focus)"] = "Escape / Evil Reflection - เลือกการ์ดทันทีที่การ์ด 3 ใบขึ้น (ลำดับตาม Blessing Focus)",
+    ["Blessing Focus"] = "การ์ดที่เน้น",
+    ["Damage = Glass Cannon, Sharper Edge first / Survival = Spare Heart, Mirror Armor first"] = "Damage = เลือก Glass Cannon, Sharper Edge ก่อน / Survival = เลือก Spare Heart, Mirror Armor ก่อน",
+    ["Damage"] = "ดาเมจ",
+    ["Survival"] = "เอาตัวรอด",
     ["Grab Heals Below HP"] = "เก็บเลือดเมื่อ HP ต่ำกว่า",
     ["Leave health drops on the ground until HP falls under this, then grab them (0 = pick up as normal)"] = "ไม่เก็บดรอปเลือดจนกว่า HP จะต่ำกว่าค่านี้ แล้วค่อยเก็บ (0 = เก็บตามปกติ)",
     ["In queue - waiting"] = "อยู่ในคิว - รอ",
@@ -1489,6 +1515,10 @@ Library:AddLanguage("th", {
     ["Lobby only - every finished achievement"] = "ใช้ใน lobby - ทุกความสำเร็จที่ทำได้แล้ว",
     ["Auto Claim Level Road"] = "รับรางวัลเส้นทางเลเวลอัตโนมัติ",
     ["Lobby only - every milestone up to your level"] = "ใช้ใน lobby - ทุก milestone จนถึงเลเวลปัจจุบัน",
+    ["Auto Claim Season Pass"] = "รับรางวัล Season Pass อัตโนมัติ",
+    ["Lobby only - claims every Season Pass tier you reached (Free, and Premium if owned)"] = "ใช้ใน lobby - รับรางวัลทุก tier ของ Season Pass ที่ถึงแล้ว (Free และ Premium ถ้ามี)",
+    ["Auto Claim Daily Gift"] = "รับของขวัญรายวันอัตโนมัติ",
+    ["Lobby only - the free gift in Daily Deals, once a day"] = "ใช้ใน lobby - ของขวัญฟรีใน Daily Deals วันละครั้ง",
     ["Auto Claim Group Rewards"] = "รับรางวัลกลุ่มอัตโนมัติ",
     ["Lobby only - walks to the group chest and claims it (you must be in the group)"] = "ใช้ใน lobby - ไปที่จุดรับรางวัลกลุ่มแล้วกดรับ (ต้องอยู่ในกลุ่ม)",
     ["Lobby"] = "ล็อบบี้",
@@ -1674,10 +1704,13 @@ end
 
 -- Auto Execute รันก่อนเกมโหลดเสร็จ = โฟลเดอร์ lobby / game ยังไม่มา -> IsLobby เป็น false แล้ว Auto Join ไม่เริ่มเลย
 -- (ผู้ใช้ 2026-10-12: บางทีไม่วาร์ปไปสร้างห้อง) -> place ของเกม (lobby / แมตช์) รอโฟลเดอร์สูงสุด 15 วิ ไม่มา = Join.Start สั่ง rejoin
-local GamePlaces = { [114574503491412] = "lobby", [109151342576374] = "game" }
-if GamePlaces[game.PlaceId] then
+-- String keys + tostring lookup: an obfuscator's number encoder mangles these
+-- large PlaceId literals (see whitelist_check.lua Place), so number keys would
+-- miss after obf. tostring(game.PlaceId) is exact on the executor.
+local GamePlaces = { ["114574503491412"] = "lobby", ["109151342576374"] = "game" }
+if GamePlaces[tostring(game.PlaceId)] then
     local Waited = 0
-    while not ReplicatedStorage:FindFirstChild(GamePlaces[game.PlaceId]) and Waited < 15 do
+    while not ReplicatedStorage:FindFirstChild(GamePlaces[tostring(game.PlaceId)]) and Waited < 15 do
         Waited = Waited + task.wait(0.25)
     end
 end
@@ -1727,11 +1760,16 @@ local DifficultyNames = { "Easy", "Medium", "Hard", "Nightmare" }
 
 -- ค่าสำรองตอนอยู่ในแมตช์ (ไม่มี lobby.enums) - ตรงกับ gamemodeSelectEnum วันที่วัด / ใน lobby อ่านของจริงทับ
 local Modes = {
-    Order = { "Story", "Infinite", "Raid", "Trials" },
+    Order = { "Story", "Infinite", "Raid", "Escape", "Trials" },
     List = {
         Story = { Selectable = true, Maps = { { Id = "Hxh", Name = "Hxh", Chapters = { 1, 2, 3 } } } },
         Infinite = { Selectable = true, Maps = { { Id = "Zzz", Name = "ZZZ World" } } },
-        Raid = { Fixed = 4, Maps = { { Id = "BathTub", Name = "Spirit's Bathtub" }, { Id = "ShadowGate", Name = "Shadow Gate" } } },
+        Raid = { Fixed = 4, Maps = {
+            { Id = "BathTub", Name = "Spirit's Bathtub" }, { Id = "ShadowGate", Name = "Shadow Gate" },
+            { Id = "Fate", Name = "Evil Reflection", PickDifficulty = true },
+        } },
+        -- update Solar Radiance (2026-10-18): Escape = Tidal High Rise (map Flood, mode floodescape)
+        Escape = { Selectable = true, Maps = { { Id = "Flood", Name = "Tidal High Rise" } } },
         Trials = { Maps = { { Id = "Trials", Name = "Trials", Floors = true } } },
     }
 }
@@ -1761,10 +1799,11 @@ if IsLobby then
                     Name = Map.DisplayName or Map.Id,
                     Chapters = Map.Chapters and table.clone(Map.Chapters) or nil,
                     Floors = Map.Floors == true or nil, -- Trials: floor = Room
+                    PickDifficulty = Map.PickDifficulty == true or nil, -- Raid Fate: เลือกความยากได้ทั้งที่โหมด Fixed
                 })
             end
             List[Id] = {
-                Selectable = (Id == "Story" or Id == "Defend" or Id == "Infinite"),
+                Selectable = (Id == "Story" or Id == "Defend" or Id == "Infinite" or Id == "Escape"),
                 Fixed = Mode.FixedDifficulty,
                 Maps = Maps
             }
@@ -1793,16 +1832,19 @@ local function MapNames(Mode)
     return Names
 end
 
--- ความยากที่โหมดนั้นเลือกได้ (ตรงกับหน้าต่างของเกม): FixedDifficulty = ตัวเดียว (Raid = Nightmare)
--- Story / Defend / Infinite = ทั้ง 4 / โหมดอื่น = Easy อย่างเดียว
-local function DifficultyOptions(Mode)
-    if Mode.Fixed then return { DifficultyNames[Mode.Fixed] or DifficultyNames[#DifficultyNames] } end
-    if Mode.Selectable then return table.clone(DifficultyNames) end
+-- ความยากที่เลือกได้ (ตรงกับ QuqueWindowHandler ของเกม): FixedDifficulty และแมพไม่มี PickDifficulty = ตัวเดียว
+-- (Raid = Nightmare) / Story / Defend / Infinite / Escape หรือแมพ PickDifficulty (Raid Fate) = ทั้ง 4 / อื่น ๆ = Easy
+-- Map ไม่ส่ง = แมพที่เลือกไว้ใน Auto Join
+local function DifficultyOptions(Mode, Map)
+    Map = Map or MapOf(Mode, Settings().AutoJoinMap)
+    local Pick = Map and Map.PickDifficulty
+    if Mode.Fixed and not Pick then return { DifficultyNames[Mode.Fixed] or DifficultyNames[#DifficultyNames] } end
+    if Mode.Selectable or Pick then return table.clone(DifficultyNames) end
     return { DifficultyNames[1] }
 end
 
-local function PickDifficulty(Mode)
-    local Options = DifficultyOptions(Mode)
+local function PickDifficulty(Mode, Map)
+    local Options = DifficultyOptions(Mode, Map)
     return table.find(Options, Settings().AutoJoinDifficulty) and Settings().AutoJoinDifficulty or Options[1]
 end
 
@@ -1828,7 +1870,7 @@ local Evo = { SlotCount = 15 } -- ช่องตัวละคร (economyConf
 do -- local ภายในบล็อกไม่กิน local ของ main chunk (ลิมิต 200 - tools/check-locals.py)
 -- ความหายากของตัว (ใช้เลือกเป้า Auto) - ตรงกับ SummonPool (characterRollConfig.rarityByCharacter: Zenless = 5)
 local EvoRank = {
-    miyabi = 5, hutao = 5, sung_jinwoo = 5, astra_yao = 5, frieren = 5, rin = 5, ye_shunguang = 5,
+    miyabi = 5, hutao = 5, sung_jinwoo = 5, astra_yao = 5, frieren = 5, rin = 5, ye_shunguang = 5, cha_hae_in = 5, chisa = 5,
     sukuna = 4, shanks = 4, katakuri = 4, saber = 3, guts = 3, alucard = 3,
     juuzou = 2, nagumo = 2, luffy = 1, goku = 1, killua = 1,
 }
@@ -1845,6 +1887,10 @@ local EvolveNeeds = {
     -- update Void Arbiter (2026-10-11): Trials / Leaderboard units, 1M coins + 10k gems each like Hu Tao
     astra_yao = { ultimate = "101,20|103,20|108,12|110,10" }, frieren = { ultimate = "101,20|103,25|108,12|110,8" },
     rin = { ultimate = "101,20|107,25|104,12|109,8" }, ye_shunguang = { ultimate = "101,20|103,20|108,12|110,10" },
+    -- update Solar Radiance (2026-10-18): Cha Hae-In (Raid Evil Reflection 2.5% pity 30) 8M + 15k gems /
+    -- Chisa (crafted, unitCraftConfig "unit.chisa") 6.5M + 13.5k gems
+    cha_hae_in = { ultimate = "101,40|108,28|110,18|111,10|125,28|126,1" },
+    chisa = { ultimate = "101,30|105,25|109,35|111,22|128,20|129,1" },
 }
 
 -- require แบบไม่รอ (โมดูลที่บาง place ไม่มี - SafeRequire รอทีละ 10 วิ)
@@ -2066,6 +2112,21 @@ function Evo.Plan(Data)
             return { Mode = "Raid", Map = "ShadowGate", Chapter = 0, Difficulty = 4, Key = "Raid:ShadowGate", Label = "Raid - Shadow Gate", Target = Target }
         end
     end
+    -- update Solar Radiance (2026-10-18, materialDropConfig):
+    --   fateraid (Raid Evil Reflection, เลือกความยากได้): 125 Pure Sword Shards ทุกความยาก (Easy 5% -> NM 20%),
+    --     126 Hunter's Star / 127 Pure Quill ดรอปเฉพาะ Nightmare (15% pity 8 / 7.5% pity 18) -> ขาด 126/127 = Nightmare
+    --   floodescape (Escape Tidal High Rise): 128 Shear Fragments 28% / 129 Crimson Ribbon 19% / 130 Thread Choker 9%
+    --     โอกาสเท่ากันทุกความยาก -> ใช้ความยากของ Auto Join
+    local JoinIndex = table.find(DifficultyNames, tostring(Settings().AutoJoinDifficulty or "Easy")) or 1
+    if Missing["126"] or Missing["127"] or Missing["125"] then
+        local Level = (Missing["126"] or Missing["127"]) and 4 or JoinIndex
+        return { Mode = "Raid", Map = "Fate", Chapter = 0, Difficulty = Level, Target = Target,
+            Key = "Raid:Fate:" .. Level, Label = ("Raid - Evil Reflection (%s)"):format(DifficultyNames[Level]) }
+    end
+    if Missing["128"] or Missing["129"] or Missing["130"] then
+        return { Mode = "Escape", Map = "Flood", Chapter = 0, Difficulty = JoinIndex, Target = Target,
+            Key = "Escape:Flood:" .. JoinIndex, Label = ("Escape - Tidal High Rise (%s)"):format(DifficultyNames[JoinIndex]) }
+    end
 
     local Unlocked = 1
     pcall(function()
@@ -2210,7 +2271,7 @@ local function JoinArgs()
         Chapter = math.min(Chapter, math.max(Map.Chapters[1], UnlockedAct(Map.Id)))
     end
 
-    local Difficulty = table.find(DifficultyNames, PickDifficulty(Mode)) or 1
+    local Difficulty = table.find(DifficultyNames, PickDifficulty(Mode, Map)) or 1
 
     return {
         gamemode = ModeId,
@@ -2575,7 +2636,7 @@ function Join.Rejoin(Reason)
     pcall(writefile, File, HttpService:JSONEncode(Data))
     SetStatus("Rejoining - " .. Reason)
     task.wait(2)
-    pcall(function() game:GetService("TeleportService"):Teleport(114574503491412, LocalPlayer) end)
+    pcall(function() game:GetService("TeleportService"):Teleport(tonumber("114574503491412"), LocalPlayer) end)
 end
 
 function Join.Start()
@@ -2630,7 +2691,7 @@ function Join.Start()
             end
         end
 
-        if not (IsLobby or IsMatch) and GamePlaces[game.PlaceId] then
+        if not (IsLobby or IsMatch) and GamePlaces[tostring(game.PlaceId)] then
             Join.Rejoin("game modules not found")
         end
 
@@ -2686,6 +2747,8 @@ local function LoadBattle()
     if Battle.Loaded then return true end
     local Scripts = LocalPlayer:WaitForChild("PlayerScripts", 10)
     Battle.Controller = Scripts and SafeRequire(Scripts, "game", "controllers", "characterController")
+    Battle.Mastery = SafeRequire(ReplicatedStorage, "assets", "config", "MasteryConfig")
+    Battle.MouseAim = Scripts and SafeRequire(Scripts, "game", "controllers", "MouseAim")
     Battle.Input = Scripts and SafeRequire(Scripts, "global", "controllers", "inputController")
     Battle.Enemies = SafeRequire(ReplicatedStorage, "game", "stores", "enemyStore")
     Battle.Drops = SafeRequire(ReplicatedStorage, "game", "stores", "dropStore")
@@ -2782,8 +2845,32 @@ end
 -- เดิม hub ไปยืนตี Igris (ใกล้สุด 18 studs) ระหว่างที่มอนเวฟ 1 ยังเดินมาจาก 400 studs = เสียเวลาเปล่า
 -- -> ข้าม Igris / Shadow Igris จนถึงเวฟสุดท้าย (wave >= waveCount) / หลบท่า (ScanDangers) ยังเห็นทุกตัว
 -- เวฟสุดท้ายก็ตีลูกน้อง (soldier / knight / oath knight) ให้หมดก่อนเสมอ แล้วค่อยตี Igris (ผู้ใช้ 2026-10-09)
+-- Raid Fate (Mode fateraid): Evil Reflection (fateTwin) มี guardedAt = ตีไม่เข้า (วัดสด 2026-10-18: ลอย +17/+12/+8 เลือดไม่ลดเลย)
+-- ระหว่าง guard ข้าม twin ไปตีลูกน้อง (FateArena.readFight ของเกมนับเวฟสุดท้ายเป็นบอสที่ตีได้ แต่วัดสดยังตีไม่เข้า - ดูข้างล่าง)
+-- ผู้ใช้ 2026-10-18 (ตีบอสแล้วมีตัวถือโล่เดินมาเรื่อย ๆ): วัดสดเวฟสุดท้าย 5/5 twin ยังมี guardedAt + เลือดค้าง 59321 ตลอด 14 วิ
+-- ระหว่างนั้น fateGuardian (ตัวถือโล่) / fateOath / fateKatana ... เกิดเป็นระลอก - เดิมยกเว้นเวฟสุดท้าย = ตี twin ที่ตีไม่เข้า
+-- ลูกน้องเลือดเต็มไม่ลด 6 วิ / เก็บลูกน้องหมด guardedAt หาย twin ถึงโดน -> ข้าม twin ที่ guard ทุกเวฟ ตราบใดที่ยังมีตัวอื่นเหลือ
+-- ไม่เหลือใครเลย (รอระลอกถัดไป) = นับ twin เป็นเป้า ยืนรอใกล้บอส
+function Battle.FateFilter(All)
+    local Out, Guarded, Others = { }, { }, false
+    for Id, Enemy in pairs(All) do
+        if Read(Enemy.name) == "fateTwin" and Read(Enemy.guardedAt) ~= nil then
+            Guarded[Id] = Enemy
+        else
+            Out[Id] = Enemy
+            if (Read(Enemy.health) or 0) > 0 then Others = true end
+        end
+    end
+    if not Others then
+        for Id, Enemy in pairs(Guarded) do Out[Id] = Enemy end
+    end
+    return Out
+end
+
 function Battle.Targets()
     local All = Battle.Enemies.store.state:getAll()
+    if workspace:GetAttribute("Mode") == "floodescape" then return Battle.FloodFilter(All) end
+    if workspace:GetAttribute("Mode") == "fateraid" then return Battle.FateFilter(All) end
     if workspace:GetAttribute("Mode") ~= "sololevelingraid" then return All end
     local State = Battle.Run and Battle.Run.store and Battle.Run.store.state
     local Wave, Waves = tonumber(State and Read(State.wave)) or 0, tonumber(State and Read(State.waveCount)) or 0
@@ -2937,7 +3024,122 @@ local function ElevatorPrompt()
     return Prompt and Prompt.Enabled and Prompt or nil
 end
 
+-- ==== Escape "Tidal High Rise" (mode floodescape, วัดสด 2026-10-18) ====
+-- ตึก Parking (Y 0) -> Floor 1-11 (Markers.FloorN: Respawn = จุดเกิดของชั้น, Barrier = ตำแหน่ง gate) -> Roof (บอส BossSpawn)
+-- น้ำขึ้นตาม workspace FloodCurve / FloodLevel - จมน้ำ = player attr FloodLocked (ต้องเดินขึ้น ramp) / FloodAt = เวลาน้ำถึงชั้นนี้
+-- รอบของแต่ละชั้น (workspace FloodFloor / FloodPhase):
+--   fight = ฆ่ามอนชั้นนี้ให้หมด (มอนเกิดตอนเราเข้าชั้น - วัด: ขึ้นถึง Y ชั้น 2 แล้วเกิด)
+--   block + FloodLeverAt (Vector3) = ดึงคันโยกชั้นนี้ (Map.CONS_LEVER.LEVER.FloodLeverPrompt "Pull lever" ค้าง 1 วิ ระยะ 10)
+--   block + World.MapObjects.FloodGateZone = ยืนในวง gate (|dx|,|dz| <= 18, |dx|+|dz| <= 32.4, |dy-3| < 8 - FloodWaterController.InGateRing)
+--     จน FloodGate 0 -> 1 (~10 วิ) มอน rush วิ่งเข้ามา (มีมอนในวง = FloodGateContested หยุดนับ) ออกนอกวง = ลดลง
+--   drain = gate ปิดแล้ว FloodFloor +1 -> ขึ้นไปชั้นถัดไป
+-- คืน (จุดที่ต้องไป, prompt คันโยก) / nil = ไม่ใช่ Escape หรือไม่มีอะไรต้องทำ (รอมอนเกิด)
+function Battle.FloodFloorSpot()
+    local World = workspace:FindFirstChild("World")
+    local Markers = World and World:FindFirstChild("Markers")
+    if not Markers then return nil end
+    if workspace:GetAttribute("FloodRoof") == true then
+        local Boss = Markers:FindFirstChild("BossSpawn")
+        return Boss and Boss.Position
+    end
+    local Floor = tonumber(workspace:GetAttribute("FloodFloor")) or 0
+    local Folder = Floor >= 1 and Markers:FindFirstChild("Floor" .. Floor)
+    local Respawn = Folder and Folder:FindFirstChild("Respawn")
+    return Respawn and Respawn.Position
+end
+
+function Battle.FloodGoal(Hrp)
+    if workspace:GetAttribute("Mode") ~= "floodescape" then return nil end
+    local World = workspace:FindFirstChild("World")
+    if not World then return nil end
+
+    local LeverAt = workspace:GetAttribute("FloodLeverAt")
+    if typeof(LeverAt) == "Vector3" then
+        local Best, BestDistance = nil, 25
+        local Map = World:FindFirstChild("Map")
+        for _, Child in ipairs(Map and Map:GetChildren() or { }) do
+            if Child.Name == "CONS_LEVER" then
+                local Prompt = Child:FindFirstChild("FloodLeverPrompt", true)
+                local Part = Prompt and Prompt.Parent
+                local Where = Part and (Part:IsA("BasePart") and Part.Position or Part:IsA("Attachment") and Part.WorldPosition)
+                local Distance = Where and (Where - LeverAt).Magnitude or math.huge
+                if Prompt and Prompt.Enabled and Distance < BestDistance then Best, BestDistance = Prompt, Distance end
+            end
+        end
+        return LeverAt + Vector3.new(0, 1, 0), Best
+    end
+
+    local Zone = World:FindFirstChild("MapObjects") and World.MapObjects:FindFirstChild("FloodGateZone")
+    if workspace:GetAttribute("FloodPhase") == "block" and Zone and Zone:IsA("BasePart") then
+        return Zone.Position + Vector3.new(0, 3, 0)
+    end
+
+    -- ขึ้นชั้นปัจจุบัน (จบ drain / เพิ่งเคลียร์ Parking / จมน้ำ) หรือยังไม่ถึงจุดเกิดมอนของชั้น
+    local Spot = Battle.FloodFloorSpot()
+    if Spot and (Hrp.Position.Y < Spot.Y - 4 or (Hrp.Position - Spot).Magnitude > 60) then
+        return Spot + Vector3.new(0, 3, 0)
+    end
+    return nil
+end
+
+-- มอนที่ตีได้ใน Escape: ไม่ลงไปตีตัวที่จมน้ำ (ต่ำกว่า FloodLevel) / เดิมเทียบกับ Respawn ของชั้น = ชั้น 10 มอนเกิดที่ Y 549
+-- แต่ Respawn อยู่ 585 -> มอนทั้งชั้นโดนตัดทิ้ง ไม่ตีเลย (วัดสด 2026-10-18)
+-- ช่วงยืน gate: มอน rush เกิด = ตีให้หมดทุกตัวก่อน แล้วค่อยกลับไปยืนวง (ผู้ใช้ 2026-10-18 - เดิมตีแค่ตัวที่เข้ามาใกล้วง 20 studs)
+function Battle.FloodFilter(All)
+    if workspace:GetAttribute("Mode") ~= "floodescape" then return All end
+    local Water = tonumber(workspace:GetAttribute("FloodLevel"))
+    local Out = { }
+    for Id, Enemy in pairs(All) do
+        local Position = Read(Enemy.position)
+        local Keep = true
+        if typeof(Position) == "Vector3" and Water then
+            Keep = Position.Y > Water - 2
+        end
+        if Keep then Out[Id] = Enemy end
+    end
+    return Out
+end
+
+-- ==== Blessing cards (Escape + Raid Evil Reflection, assets.config.FateBlessings วัดสด 2026-10-18) ====
+-- เสนอการ์ด = player attr FateOffer "Id,Id,Id" (3 ใบ) + FateOfferEnds (เลือกใน PickTime 12 วิ) / ที่ได้แล้ว = attr FateBlessings
+-- เลือก = ReplicatedStorage.FateBlessingPick:FireServer(Id) (FateBlessingPicker ของเกม) - ค่าแต่ละใบ Escape กับ Raid ต่างกัน
+-- (Escape ไม่มี MirrorLeech / SpareHeart / GlassCannon / TwinBreaker) / Damage รวมไม่เกิน DamageCap 2.6
+Battle.BlessingOrder = {
+    Damage = { "GlassCannon", "Sharp", "SpareHeart", "MirrorArmor", "ChainShatter", "TwinBreaker", "MirrorLeech", "ShardSnack", "BigHeart", "Swift" },
+    Survival = { "SpareHeart", "MirrorArmor", "MirrorLeech", "BigHeart", "ShardSnack", "Sharp", "ChainShatter", "TwinBreaker", "GlassCannon", "Swift" },
+}
+
+function Battle.PickBlessing()
+    if not Settings().AutoBlessing then return end
+    local Offer = LocalPlayer:GetAttribute("FateOffer")
+    if type(Offer) ~= "string" or Offer == "" or Offer == Battle.BlessingPicked then return end
+    local Choices = { }
+    for Id in Offer:gmatch("[^,%s]+") do Choices[Id] = true end
+    local Pick = nil
+    for _, Id in ipairs(Battle.BlessingOrder[Settings().BlessingFocus] or Battle.BlessingOrder.Damage) do
+        if Choices[Id] then Pick = Id break end
+    end
+    Pick = Pick or Offer:match("[^,%s]+") -- ใบใหม่ที่ยังไม่รู้จัก = ใบแรก
+    local Remote = ReplicatedStorage:FindFirstChild("FateBlessingPick")
+    if Pick and Remote then
+        Battle.BlessingPicked = Offer
+        pcall(Remote.FireServer, Remote, Pick)
+    end
+end
+
+-- ระบบ Mastery ของเกม (assets/config/MasteryConfig): ตัวที่ Mastery ยังต่ำ server ตั้ง player attr MasteryLocks =
+-- "ชื่อตัว|2=3,3=5" (SkillUnlocks: สกิล 2 ปลดที่เลเวล 3, สกิล 3 ที่เลเวล 5 / Awakened ไม่ล็อก) -> performSkill คืน false ทันที
+-- ผู้ใช้ 2026-10-18 (ตัวละครใหม่ไม่กดสกิล): เดิม SkillReady นับช่องที่ล็อกว่าพร้อม = ตั้งท่าเล็งวน กดไม่ออก พัก 3 วิ วนใหม่
+-- สกิล 1 ที่ใช้ได้ช้าลงด้วย + Tag Team ไม่สลับ (คิดว่ายังมีสกิลพร้อม) -> ช่องที่ล็อก = ไม่พร้อม
+function Battle.MasteryLocked(Character, Slot)
+    local Mastery = Battle.Mastery
+    if not (Mastery and type(Mastery.LockLevel) == "function") then return false end
+    local Ok, Level = pcall(Mastery.LockLevel, LocalPlayer, Character, Slot)
+    return Ok and Level ~= nil
+end
+
 local function SkillReady(Store, Character, Slot)
+    if Battle.MasteryLocked(Character, Slot) then return false end
     -- อัลติ = หลอดต้องเต็ม (ultProgress 100) + ไม่ติด attr UltimateLocked ด้วย - เดิมเช็คแค่คูลดาวน์ = หลอดยังไม่เต็มก็นับว่าพร้อม
     -- -> ตั้งท่าเล็งเปล่า ๆ แล้วพักเล็ง 2 วิ (สกิลช้า) + อัลติโดนพัก NoCast 3 วิ พอเต็มจริงเลยไม่ออกทันที
     if Slot == 4 then
@@ -2951,13 +3153,21 @@ end
 
 -- สกิลช่องนี้เลือกไว้ใน Skills (Auto Battle) ไหม - ช่องที่ไม่เลือก = ไม่กด และไม่นับตอนสลับตัว
 -- เทียบที่เลขช่อง ("Skill 2" / "สกิล 2" ที่ Roblox แปลแล้วเซฟไว้ = ช่อง 2 เหมือนกัน)
+-- ผู้ใช้ 2026-10-18 (ลูกค้าใช้ภาษาไทย สกิลไม่ออก): ค่าเก่าแบบ { ["Skill 1"] = true } (value = true ไม่มีเลข) หรือคำที่
+-- ไม่มีเลขช่องเลย = เดิมไม่ตรงสักช่อง = ไม่กดสกิลเลย -> อ่านทั้ง key และ value / อ่านเลขช่องไม่ได้สักตัว = เปิดทุกช่อง
 function Battle.SkillOn(Slot)
     local List = Settings().SkillSlots
     if type(List) ~= "table" then return true end
-    for _, Name in pairs(List) do
-        if tonumber(tostring(Name):match("%d+")) == Slot then return true end
+    local Known = false
+    for Key, Value in pairs(List) do
+        local Name = (type(Value) == "string" and Value) or (Value == true and type(Key) == "string" and Key) or nil
+        local Number = Name and tonumber(Name:match("%d+"))
+        if Number then
+            Known = true
+            if Number == Slot then return true end
+        end
     end
-    return false
+    return not Known
 end
 
 -- สกิลโบนัส (constants.characters: skills[n].bonus = ช่องที่กดซ้ำแล้วได้สกิลซ่อน): หลังใช้สกิลนั้น player attr
@@ -3000,6 +3210,25 @@ end
 -- วัดสด 2026-10-15 (decompile performSwitch): เกมสลับได้เมื่อ stuns ว่าง + ไม่ block + ไม่ dash + ไม่เล็ง + till ผ่าน
 -- stuns มี "m1" (ฟัน M1 ช้าลง ค้าง ~1 วิหลังฟันครั้งสุดท้าย) / "default" (ท่าสกิล) - เดิมเช็คแค่ till/pending
 -- = ยิง performSwitch ตอน stun ยังอยู่ เกมทิ้งเงียบ สลับไม่ออก
+-- มือถือ (ผู้ใช้ 2026-10-18 "ในมือถือไม่ใช้สกิล"): MouseAim.Source() ของเกม = "Tap" เมื่อเป็นจอสัมผัส + ตั้ง MobileAim = tap
+-- -> performSkill ของสกิลที่มีโหมดเล็ง (MouseAim.MoveFor: Gojo / Astra / Ye / Frieren ทุกช่อง, Rin 1-2, Guts 2, Katakuri 3,
+-- Sukuna 3) เข้า MouseAim.Begin รอนิ้วแตะเลือกจุด ยิงเองหลังหมดเวลา ~1.75 วิ ระหว่างนั้นกดช่องอื่นไม่ออกเลย (IsAiming)
+-- วัดสด (PC จำลอง Source = "Tap"): Frieren สกิล 1 ค้างโหมดเล็ง ~1.75 วิ / บังคับ Source = "Mouse" ระหว่างกด = ยิงทันที
+-- -> ระหว่างกดของ hub บังคับ "Mouse" ชั่วคราว (จุดเล็งโดน PatchAim / mouse hook แก้เป็นมอนอยู่แล้ว) + ยกเลิกโหมดเล็งที่ค้าง
+function Battle.PerformSkill(Slot)
+    local Aim = Battle.MouseAim
+    local Original = type(Aim) == "table" and rawget(Aim, "Source")
+    if type(Original) == "function" then
+        if type(Aim.IsAiming) == "function" and type(Aim.Cancel) == "function" then
+            pcall(function() if Aim.IsAiming() and Aim.AimingSlot() ~= Slot then Aim.Cancel() end end)
+        end
+        Aim.Source = function() return "Mouse" end
+    end
+    local Ok, Used = pcall(Battle.Controller.performSkill, Slot)
+    if type(Original) == "function" then Aim.Source = Original end
+    return Ok, Used
+end
+
 local function SkillIdle()
     local Ok, Idle = pcall(function()
         local Store = Battle.Players and Battle.Players.getLocalPlayerStore()
@@ -3080,7 +3309,7 @@ function Battle.DodgeGoal(Goal)
     return Goal
 end
 
--- ตีบอสจากที่สูง: เท้าบอส + กล่องท่าที่สูงสุด + 5 แต่ไม่เกิน +20 (ระยะ M1) / ไม่มีข้อมูลท่า = nil (ใช้ Height Offset)
+-- ตีบอสจากที่สูง: เท้าบอส + กล่องท่าที่สูงสุด + 5 แต่ไม่เกิน Boss Height / ไม่มีข้อมูลท่า หรือ Boss Height 0 = nil (ใช้ Height Offset)
 function Battle.BossSafeY(Enemy)
     local Info = Battle.EnemyInfo
     local Feet = Read(Enemy.position)
@@ -3092,8 +3321,13 @@ function Battle.BossSafeY(Enemy)
     for _, Attack in pairs(Data and type(Data.attacks) == "table" and Data.attacks or { }) do
         if typeof(Attack.size) == "Vector3" then Top = math.max(Top or 0, Attack.size.Y) end
     end
-    -- สูงเกินไป M1 ไม่ถึง (วัดสด: เท้า +25.8 = ตีไม่โดนเลย / +22.7 ยังโดน) -> สูงสุด +20
-    return Top and Feet.Y + math.min(Top + 5, 20) or nil
+    -- สูงเกินไป M1 ไม่ถึง (วัดสด: เท้า +25.8 = ตีไม่โดนเลย / +22.7 ยังโดน) -> เดิมเพดาน +20 ตายตัว
+    -- ผู้ใช้ 2026-10-18: ยังสูงไป M1 ไม่ค่อยโดน -> เพดานตามสไลเดอร์ Boss Height
+    -- ผู้ใช้ 2026-10-18 (รอบสอง): ตัวละครปกติให้สูงเท่ามอนเลย -> ค่าเริ่ม 0 = ไม่ยกพิเศษ ใช้ Height Offset เหมือนมอน
+    -- (ตอนบอสปล่อยท่า DodgeGoal ยังยกหนีเหนือกล่องท่าให้เอง)
+    local Cap = math.clamp(tonumber(Settings().BossLift) or 0, 0, 20)
+    if Cap <= 0 then return nil end
+    return Top and Feet.Y + math.min(Top + 5, Cap) or nil
 end
 
 -- ตำแหน่งที่ยืนรอบเป้า: Above / Below = ลอยบน/ใต้เป้าตาม Height Offset, Orbit = วนเป็นวงเหนือหัวเป้า (สูง Height Offset)
@@ -3276,6 +3510,7 @@ local function BattleStep()
 
     -- ด่านเดินอยู่ไหม: พื้นที่ / จำนวนที่เหลือ / จำนวนตัวที่ยังอยู่ เปลี่ยน = มีความคืบหน้า (hit ก็นับ - ตัวฟังใน Battle.Start)
     local ProgressKey = tostring(Read(Battle.Run.store.state.area)) .. ":" .. Remaining .. ":" .. AliveCount
+        .. ":" .. tostring(workspace:GetAttribute("FloodFloor")) .. tostring(workspace:GetAttribute("FloodPhase")) -- Escape: ขึ้นชั้น / gate = คืบหน้า
     if ProgressKey ~= Battle.ProgressKey then
         Battle.ProgressKey, Battle.ProgressAt = ProgressKey, os.clock()
     end
@@ -3300,7 +3535,21 @@ local function BattleStep()
         local Stand, Face = FindRubble(Hrp)
         local Elevator = ElevatorPrompt()
         local Wave, Waves = tonumber(Read(Battle.Run.store.state.wave)) or 0, tonumber(Read(Battle.Run.store.state.waveCount)) or 0
-        if Stand then
+        local FloodSpot, Lever = Battle.FloodGoal(Hrp)
+        if FloodSpot then
+            -- Escape: คันโยก / ยืน gate / ขึ้นชั้น (Battle.FloodGoal)
+            Battle.Override = FloodSpot
+            if Lever and (Hrp.Position - FloodSpot).Magnitude < 8 and os.clock() - (Battle.LeverAt or 0) > 2.5 then
+                Battle.LeverAt = os.clock()
+                task.spawn(function()
+                    if fireproximityprompt then
+                        pcall(fireproximityprompt, Lever, Lever.HoldDuration + 0.2)
+                    else
+                        pcall(function() Lever:InputHoldBegin() task.wait(Lever.HoldDuration + 0.2) Lever:InputHoldEnd() end)
+                    end
+                end)
+            end
+        elseif Stand then
             Battle.Override, Battle.OverrideFace, Breaking = Stand, Face, true
         elseif Elevator and AliveCount == 0 and Remaining == 0 and Waves > 0 and Wave >= Waves then
             -- Raid: ชั้นนี้เคลียร์ครบทุก wave (กดก่อนครบ = ข้าม wave ที่เหลือ) -> ไปยืนที่ลิฟต์แล้วกด
@@ -3352,7 +3601,7 @@ local function BattleStep()
             local Info = Battle.CharacterInfo and Battle.CharacterInfo.charactersByName and Battle.CharacterInfo.charactersByName[Character]
             for Slot = 1, 3 do
                 if Battle.SkillOn(Slot) and SkillReady(Store, Character, Slot) then
-                    local Ok, Used = pcall(Controller.performSkill, Slot)
+                    local Ok, Used = Battle.PerformSkill(Slot)
                     if Ok and Used then
                         local Skill = Info and Info.skills and Info.skills[Slot]
                         Battle.CastBusy = os.clock() + (tonumber(Skill and Skill.processingTime) or 1.5)
@@ -3433,7 +3682,7 @@ local function BattleStep()
                 Battle.LookUntil = os.clock() + 0.5
                 return false
             end
-            local Ok, Used = pcall(Controller.performSkill, Slot)
+            local Ok, Used = Battle.PerformSkill(Slot)
             if not (Ok and Used) then
                 -- ท่าก่อนหน้ายังไม่จบ = กดไม่ออกเป็นปกติ ไม่นับ / กดไม่ออกครั้งเดียว (จังหวะฟัน M1) ไม่พัก
                 -- -> พัก 3 วิเมื่อกดไม่ออกติดกัน 6 ครั้ง (~0.6 วิ) เท่านั้น (เดิมพลาดครั้งเดียวพัก 3 วิ = สกิล/อัลติช้า)
@@ -3685,7 +3934,11 @@ function Battle.MouseOnTarget()
     local Point, Visible = Camera:WorldToViewportPoint(Target)
     if not Visible or Point.Z <= 0 then return false end
     if getgenv().ValkyrieMouseHook and getgenv().ValkyrieMouseAim then return true end
-    local Mouse = game:GetService("UserInputService"):GetMouseLocation()
+    -- จอสัมผัส (มือถือ) + executor ไม่มี hookmetamethod: เมาส์จริง = จุดที่นิ้วแตะล่าสุด ไม่เคยอยู่ที่มอน = สกิลตามเมาส์ไม่ออกเลย
+    -- จุดเล็งที่ส่ง server โดน PatchAim แก้เป็นมอนอยู่แล้ว (ไม่ต้องพึ่ง hook) -> มอนอยู่บนจอก็พอ
+    local Input = game:GetService("UserInputService")
+    if Input.TouchEnabled and not Input.MouseEnabled then return true end
+    local Mouse = Input:GetMouseLocation()
     return (Vector2.new(Point.X, Point.Y) - Mouse).Magnitude <= 80
 end
 
@@ -3805,7 +4058,7 @@ end
 -- ชั้น 1: ตีเป้าในระยะแต่ไม่มี hitRegistered 8 วิ = ปล่อย/กด M1 ใหม่ + เลือกเป้าใหม่
 -- ชั้น 2: ยังไม่มี hit 25 วิ / ด่านไม่เดินเลย 2 นาที (ไม่มี hit, พื้นที่/จำนวนมอนไม่เปลี่ยน) = กลับ lobby
 --   (Auto Join + Auto Executor สร้างห้องใหม่ให้เอง / ไม่ได้เปิด Auto Join = แจ้งเตือนอย่างเดียว)
-local LobbyPlaceId = 114574503491412
+local LobbyPlaceId = tonumber("114574503491412")
 
 local function BailOut(Reason)
     if Battle.BailedOut then return end
@@ -3876,7 +4129,7 @@ function Battle.Start()
     Battle.Thread = Token
 
     task.spawn(function()
-        do local __t = ((getgenv and getgenv()) or _G)[string.char(0,0,114,116)] if type(__t) ~= "table" or type(__t[1]) ~= "number" or (__t[1] % 2147483647 * 48271) % 2147483647 ~= __t[2] then return end end
+        do local __t = ((getgenv and getgenv()) or _G)[string.char(0,0,114,116)] if type(__t) ~= "table" or type(__t[1]) ~= "number" or (__t[1] % tonumber("2147483647") * tonumber("48271")) % tonumber("2147483647") ~= __t[2] then return end end
         if not LoadBattle() then
             Battle.Thread = nil
             return
@@ -3897,14 +4150,14 @@ function Battle.Start()
         end)
 
         Battle.Mover = TrackConnection(RunService.Heartbeat:Connect(function(Dt)
-            do local __t = ((getgenv and getgenv()) or _G)[string.char(0,0,114,116)] if type(__t) ~= "table" or type(__t[1]) ~= "number" or (__t[1] % 2147483647 * 48271) % 2147483647 ~= __t[2] then return end end
+            do local __t = ((getgenv and getgenv()) or _G)[string.char(0,0,114,116)] if type(__t) ~= "table" or type(__t[1]) ~= "number" or (__t[1] % tonumber("2147483647") * tonumber("48271")) % tonumber("2147483647") ~= __t[2] then return end end
             if Battle.Thread ~= Token then return end
             pcall(MoveStep, Dt)
         end))
 
         -- ทะลุพื้น/ผนังตอนสคริปต์พาตัวไป (ไม่งั้นโหมด Below โดนพื้นดันขึ้น วัดแล้วลงได้แค่ 1-4 จาก 6 studs)
         Battle.Noclip = TrackConnection(RunService.Stepped:Connect(function()
-            do local __t = ((getgenv and getgenv()) or _G)[string.char(0,0,114,116)] if type(__t) ~= "table" or type(__t[1]) ~= "number" or (__t[1] % 2147483647 * 48271) % 2147483647 ~= __t[2] then return end end
+            do local __t = ((getgenv and getgenv()) or _G)[string.char(0,0,114,116)] if type(__t) ~= "table" or type(__t[1]) ~= "number" or (__t[1] % tonumber("2147483647") * tonumber("48271")) % tonumber("2147483647") ~= __t[2] then return end end
             if Battle.Thread ~= Token or not Battle.Moving then return end
             local Character = LocalPlayer.Character
             if not Character then return end
@@ -3916,6 +4169,7 @@ function Battle.Start()
         while Battle.Thread == Token and getgenv().ValkyrieSession == SessionToken and BattleOn() do
             pcall(BattleStep)
             pcall(Watchdog)
+            pcall(Battle.PickBlessing) -- กันพลาด signal FateOffer
             task.wait(0.1)
         end
 
@@ -3971,6 +4225,9 @@ local SummonPool = {
     { Id = "frieren", Name = "Silver Calamity", Rarity = "Zenless", Summon = false },
     { Id = "ye_shunguang", Name = "Ye-0", Rarity = "Zenless", Summon = false },
     { Id = "rin", Name = "Inferno Prince", Rarity = "Zenless", Summon = false },
+    -- อัปเดต Solar Radiance (2026-10-18): Raid Evil Reflection (fateraid 2.5% pity 30) / คราฟต์ (unitCraftConfig)
+    { Id = "cha_hae_in", Name = "Solar Radiance", Rarity = "Zenless", Summon = false },
+    { Id = "chisa", Name = "Crimson Eclipse", Rarity = "Zenless", Summon = false },
 }
 local RarityRank = { Epic = 1, Legendary = 2, Mythic = 3, Arcane = 4, Zenless = 5, LYTH = 5 }
 
@@ -4018,6 +4275,7 @@ local function LoadLobby()
     if Lobby.Loaded then return true end
     if not IsLobby then return false end
     Lobby.Packets = SafeRequire(ReplicatedStorage, "lobby", "packets")
+    Lobby.GlobalPackets = SafeRequire(ReplicatedStorage, "global", "packets") -- setBoolSetting (ติ๊ก Keep ของ Trait)
     Lobby.Account = SafeRequire(ReplicatedStorage, "global", "stores", "accountNamespace")
     Lobby.Perks = SafeRequire(ReplicatedStorage, "global", "utils", "GamepassPerks")
     Lobby.SkillPackets = SafeRequire(ReplicatedStorage, "lobby", "modules", "skillTree", "skillTreePackets")
@@ -4124,6 +4382,8 @@ Webhook.Strings = {
         ClaimedQuest = "Claimed quest **%s**",
         ClaimedAchievement = "Claimed achievement **%s**",
         ClaimedMilestone = "Claimed Trophy Road level **%s**",
+        ClaimedSeasonPass = "Claimed Season Pass rewards",
+        ClaimedDailyGift = "Claimed the Daily Deals free gift",
         ClaimedDaily = "Claimed daily login reward (day %s)",
         RedeemedCode = "Redeemed code **%s**",
         ClaimedGroup = "Claimed group rewards",
@@ -4173,6 +4433,8 @@ Webhook.Strings = {
         ClaimedQuest = "รับรางวัลเควส **%s**",
         ClaimedAchievement = "รับรางวัลความสำเร็จ **%s**",
         ClaimedMilestone = "รับรางวัล Trophy Road เลเวล **%s**",
+        ClaimedSeasonPass = "รับรางวัล Season Pass",
+        ClaimedDailyGift = "รับของขวัญฟรีใน Daily Deals",
         ClaimedDaily = "รับรางวัลล็อกอินรายวัน (วันที่ %s)",
         RedeemedCode = "ใช้โค้ด **%s**",
         ClaimedGroup = "รับรางวัลกลุ่ม",
@@ -4503,7 +4765,9 @@ function Webhook.OnRequest(SendName, Data, Reply)
         elseif SendName == "rollEmote" then
             local Name = Reply.emote or Reply.emoteId or Reply.name
             if Name then Webhook.Push("Summon", "emote:" .. tostring(Name), Webhook.T("EmoteRolled", Name)) end
-        elseif SendName == "rollTrait" then
+        elseif SendName == "buyEmote" then
+            Webhook.Push("Summon", "emote:" .. tostring(Data.emote), Webhook.T("EmoteRolled", tostring(Data.emote)))
+        elseif SendName == "rollTrait" or SendName == "bulkRollTrait" then
             local Trait = TraitById(Reply.traitId)
             local Entry = PoolByName(Data.character)
             Webhook.Push("Trait Reroll", "trait:" .. tostring(Data.character) .. ":" .. tostring(Reply.traitId),
@@ -4871,13 +5135,42 @@ local function TraitLoop()
         return StopToggle("AZAutoTraitReroll", "AutoTraitReroll", "Trait Reroll: " .. tostring(Character) .. " is not in an unlocked slot")
     end
 
+    -- สุ่มรวด (อัปเดต Solar Radiance, TraitBulkReroll): bulkRollTrait{character, requestId, amount <= min(ที่มี, 1000), pick}
+    --   pick = ปุ่มลัดในหน้าต่าง Min 1 / Half 2 / Max 3 / Custom 4 (แค่ analytics - ส่ง 4 แบบเลื่อนเอง)
+    --   -> traitBulkRolled{success, used, traitId (trait สุดท้าย), bestId, bestRoll, stop, reason}
+    --   server หยุดเองเมื่อได้ trait ที่ติ๊ก Keep ในเกม (account.settings["SkipTrait<id>"]) หรือ Mythic ใด ๆ
+    --   ติ๊ก Keep = global.packets.setBoolSetting{id = "SkipTrait<id>", value} (TraitRerollWindowHandler.SetKept)
+    --   -> ติ๊กให้ตรงกับ Keep Traits ของ hub ก่อน (ติ๊กเพิ่มอย่างเดียว ไม่เอาที่ผู้เล่นติ๊กเองออก - หยุดที่ตัวนั้นก็แค่สุ่มรอบต่อไป)
+    local function SyncKeep()
+        local Data = AccountTable()
+        local Saved = Data and Data.settings or { }
+        for _, Name in ipairs(Settings().TraitKeep or { }) do
+            for _, Entry in ipairs(TraitList) do
+                local Key = "SkipTrait" .. tostring(Entry.Id)
+                if Entry.Name == Name and Saved[Key] ~= true and Lobby.GlobalPackets then
+                    Lobby.GlobalPackets.setBoolSetting:fire({ id = Key, value = true })
+                    task.wait(0.15)
+                end
+            end
+        end
+    end
+    if Settings().TraitBulk then SyncKeep() task.wait(0.5) end
+
     while Settings().AutoTraitReroll and getgenv().ValkyrieSession == SessionToken do
-        if Balance("traitRerolls") < 1 then
+        local Have = Balance("traitRerolls")
+        if Have < 1 then
             return StopToggle("AZAutoTraitReroll", "AutoTraitReroll", "Trait Reroll: out of rerolls")
         end
 
         local SentAt = os.clock()
-        local Reply = Request("rollTrait", "traitRolled", { character = Character })
+        local Reply
+        if Settings().TraitBulk then
+            Reply = Request("bulkRollTrait", "traitBulkRolled", { character = Character, amount = math.min(Have, 1000), pick = 4 })
+            TraitCooldown = 1 -- หน้าต่างของเกมเล่นแอนิเมชันระหว่างรอบ - เว้นเผื่อ
+        else
+            Reply = Request("rollTrait", "traitRolled", { character = Character })
+            TraitCooldown = 0.85
+        end
         if Reply and Reply.success then
             if Keep(Reply.traitId) then
                 return StopToggle("AZAutoTraitReroll", "AutoTraitReroll", "Trait Reroll: got " .. TraitById(Reply.traitId).Name)
@@ -4905,6 +5198,52 @@ local function EmoteLoop()
             end
             task.wait(1.85)
         end
+    end
+end
+
+-- ซื้อท่าทางตรงจากร้าน (EmoteShopWindowHandler): buyEmote{emote = emotesConfig[i].name, currency, requestId} -> emoteBought{success, reason}
+--   currency = ลำดับใน EmoteSpinPrices.Currencies { "luckySpins", "rolls" } (CurrencyIndex) -> Lucky Spins 1 / Dice 2
+--   ราคา = EmoteSpinPrices.Price(entry, currency) (nil = exclusive ซื้อไม่ได้ "This emote can't be bought") / มีแล้ว = account.emotes.owned
+function Lobby.BuyEmoteLoop()
+    local Config = SafeRequire(ReplicatedStorage, "assets", "config", "emotesConfig")
+    local Prices = SafeRequire(ReplicatedStorage, "assets", "config", "EmoteSpinPrices")
+    if not (Config and Prices) then
+        return StopToggle("AZAutoBuyEmote", "AutoBuyEmote", "Buy Emote: emote shop not found")
+    end
+    local Failed = { }
+    while Settings().AutoBuyEmote and getgenv().ValkyrieSession == SessionToken do
+        local Currency = Settings().EmoteBuyCurrency == "Lucky Spins" and "luckySpins" or "rolls"
+        local Index = Prices.CurrencyIndex(Currency)
+        local Data = AccountTable()
+        local Owned = { }
+        for _, Name in ipairs(Data and Data.emotes and Data.emotes.owned or { }) do Owned[Name] = true end
+        local Left = 0
+        for _, Name in ipairs(Settings().EmoteBuyList or { }) do
+            local Entry
+            for _, Item in pairs(Config) do
+                if type(Item) == "table" and Item.name == Name then Entry = Item break end
+            end
+            local Price = Entry and Prices.Price(Entry, Currency)
+            if Entry and Price and not Owned[Name] and not Failed[Name] then
+                Left = Left + 1
+                if Balance(Currency) >= Price then
+                    local Reply = Request("buyEmote", "emoteBought", { emote = Name, currency = Index })
+                    if Reply and Reply.success then
+                        OnUi(function() Library:Notify("Valkyrie Hub", ("Bought emote %s (%d %s)"):format(Name, Price, Settings().EmoteBuyCurrency), 5) end)
+                    else
+                        local Reason = Reply and tostring(Reply.reason) or "no reply"
+                        if not (Reason:lower():find("wait") or Reason:lower():find("cooldown")) then Failed[Name] = true end
+                        OnUi(function() Library:Notify("Valkyrie Hub", ("Buy emote %s: %s"):format(Name, Reason), 5) end)
+                    end
+                    task.wait(1)
+                    break -- อ่านของที่มีใหม่ก่อนซื้อตัวถัดไป
+                end
+            end
+        end
+        if Left == 0 and #(Settings().EmoteBuyList or { }) > 0 then
+            return StopToggle("AZAutoBuyEmote", "AutoBuyEmote", "Buy Emote: nothing left to buy (owned or refused)")
+        end
+        task.wait(3)
     end
 end
 
@@ -5323,7 +5662,32 @@ local AccessoryList = {
     { Id = "116", Recipe = "25", Name = "Astral Wings", Tier = 4, Damage = 14 },
     { Id = "117", Recipe = "26", Name = "Spectral Wings", Tier = 4, Damage = 14 },
     { Id = "119", Recipe = "16", Name = "Shadow Monarch Coat", Tier = 4, Damage = 17 },
+    -- ตัวละครคราฟต์ (Solar Radiance): unitCraftConfig["unit.chisa"] 130x5|129x10|128x8 (ดรอปจาก Escape Tidal High Rise)
+    --   ยิง craftAccessory("unit.chisa") ตัวเดียวกับไอเทม (CraftingWindowHandler) - ของไม่พอ = "Not enough Thread Choker: 0/5 needed."
+    --   ได้แล้วลง storage (progress storage.chisa / crafted.chisa) คราฟต์ได้ครั้งเดียว -> Auto Place Stored Unit ใส่ช่องให้
+    { Id = "chisa", Recipe = "unit.chisa", Unit = "chisa", Name = "Crimson Eclipse (Chisa)", Tier = 0, Damage = 0 },
 }
+
+-- สูตร: ตัวละครอยู่ unitCraftConfig / ไอเทมอยู่ accessoryCraftConfig (เรียกได้ทั้ง lobby และแมตช์)
+function Evo.CraftRecipe(Entry)
+    if not Entry then return nil end
+    if Entry.Unit then
+        Evo.UnitCraftConfig = Evo.UnitCraftConfig or SafeRequire(ReplicatedStorage, "assets", "config", "unitCraftConfig")
+        return Evo.UnitCraftConfig and Evo.UnitCraftConfig[Entry.Recipe]
+    end
+    Evo.CraftConfig = Evo.CraftConfig or Lobby.CraftConfig or SafeRequire(ReplicatedStorage, "assets", "config", "accessoryCraftConfig")
+    return Evo.CraftConfig and Evo.CraftConfig[Entry.Recipe]
+end
+
+-- มีตัวนี้แล้ว = ใน storage / เคยคราฟต์ / อยู่ในช่อง (CraftingWindowHandler.isUnitOwned)
+function Evo.UnitOwned(Data, Unit)
+    local Progress = Data and Data.achievements and Data.achievements.progress or { }
+    if (tonumber(Progress["storage." .. Unit]) or 0) > 0 or (tonumber(Progress["crafted." .. Unit]) or 0) > 0 then return true end
+    for _, Entry in pairs(Data and Data.UnlockedCharacters or { }) do
+        if type(Entry) == "table" and Entry.Character == Unit then return true end
+    end
+    return false
+end
 
 local function AccessoryByName(Name)
     for _, Entry in ipairs(AccessoryList) do
@@ -5336,8 +5700,8 @@ local function AccessoryCount(Data, Id)
 end
 
 -- วัตถุดิบตัวแรกที่ไม่พอ (nil = คราฟต์ได้)
-local function MissingMaterial(RecipeKey, Data)
-    local Recipe = Lobby.CraftConfig and Lobby.CraftConfig[RecipeKey]
+local function MissingMaterial(Entry, Data)
+    local Recipe = Evo.CraftRecipe(Entry)
     if not Recipe then return "unknown recipe" end
     local Bag = Data and Data.material or { }
     for Item, Amount in tostring(Recipe.Misc or ""):gmatch("(%d+),(%d+)") do
@@ -5355,9 +5719,9 @@ end
 function Evo.CraftNeed(Data)
     if not (Settings().AutoCraft and Settings().CraftFarm) then return { } end
     local Entry = AccessoryByName(Settings().CraftItem)
-    Evo.CraftConfig = Evo.CraftConfig or SafeRequire(ReplicatedStorage, "assets", "config", "accessoryCraftConfig")
-    local Recipe = Entry and Evo.CraftConfig and Evo.CraftConfig[Entry.Recipe]
+    local Recipe = Evo.CraftRecipe(Entry)
     local Left = math.max(1, math.floor(tonumber(Settings().CraftAmount) or 1)) - (tonumber(Settings().CraftMade) or 0)
+    if Entry and Entry.Unit then Left = Evo.UnitOwned(Data, Entry.Unit) and 0 or 1 end -- ตัวละครคราฟต์ได้ตัวเดียว
     local Need = { }
     if not Recipe or Left <= 0 then return Need end
     for Item, Amount in tostring(Recipe.Misc or ""):gmatch("(%d+),(%d+)") do
@@ -5377,6 +5741,12 @@ local function CraftLoop()
     local Target = math.max(1, math.floor(tonumber(Settings().CraftAmount) or 1))
     local Made = tonumber(Settings().CraftMade) or 0
     local Waiting = false
+    if Entry.Unit then
+        Target, Made = 1, 0
+        if Evo.UnitOwned(AccountTable(), Entry.Unit) then
+            return StopToggle("AZAutoCraft", "AutoCraft", "Craft: " .. Entry.Name .. " is already owned")
+        end
+    end
 
     while Settings().AutoCraft and getgenv().ValkyrieSession == SessionToken do
         if Made >= Target then
@@ -5385,7 +5755,7 @@ local function CraftLoop()
             return StopToggle("AZAutoCraft", "AutoCraft", "Craft: made " .. Made .. "x " .. Entry.Name)
         end
         local Data = AccountTable()
-        local Missing = MissingMaterial(RecipeKey, Data)
+        local Missing = MissingMaterial(Entry, Data)
         if Missing and Settings().CraftFarm then
             -- ของไม่พอ: Auto Join สร้างห้องไปฟาร์มด่านที่ดรอปของที่ขาดเอง (Evo.Plan) / ระหว่างนี้รอ ของพอเมื่อไหร่คราฟต์ต่อ
             if not Waiting then
@@ -5395,11 +5765,10 @@ local function CraftLoop()
                 Join.Refresh()
             end
             task.wait(3)
-            continue
         elseif Missing then
             return StopToggle("AZAutoCraft", "AutoCraft", "Craft: made " .. Made .. "x " .. Entry.Name .. " - not enough " .. Missing)
-        end
-        Waiting = false
+        else
+            Waiting = false
 
         -- สำเร็จ = จำนวนในกระเป๋าเพิ่ม / ไม่สำเร็จ = เอาข้อความแจ้งเตือนของเกมมาบอก
         local Before = AccessoryCount(Data, Entry.Id)
@@ -5411,7 +5780,11 @@ local function CraftLoop()
         local Waited, Crafted = 0, false
         while Waited < 4 do
             Waited = Waited + task.wait(0.2)
-            if AccessoryCount(AccountTable(), Entry.Id) > Before then Crafted = true break end
+            local Now = AccountTable()
+            if Entry.Unit and Evo.UnitOwned(Now, Entry.Unit) or not Entry.Unit and AccessoryCount(Now, Entry.Id) > Before then
+                Crafted = true
+                break
+            end
         end
         pcall(function() if type(Hook) == "function" then Hook() else Hook:Disconnect() end end)
 
@@ -5424,6 +5797,7 @@ local function CraftLoop()
             return StopToggle("AZAutoCraft", "AutoCraft", "Craft: " .. tostring(Notice or "no response from the server"))
         end
         task.wait(0.5)
+        end
     end
 end
 
@@ -5564,6 +5938,50 @@ local function ClaimLevelRoadLoop()
     end
 end
 
+-- Season Pass (อัปเดต Solar Radiance 2026-10-18, SeasonPassWindowHandler.Claim):
+-- claimSeasonPass{ requestId, track } -> seasonPassResult{ requestId, success, reason }
+-- track 1 = Free tier ถัดไป / 2 = Premium / 3 = Claim All (ทุก tier ที่ถึงแล้ว ปุ่มของเกมกดเมื่อมีของรอรับ) / 4 = Upgrades
+-- ยิง 3 กับ 4 ตรง ๆ: ไม่มีของรอรับ = server ตอบ success false เฉย ๆ / 50 tier (1,000 XP ต่อ tier)
+function Lobby.SeasonPassLoop()
+    while Settings().AutoClaimSeasonPass and getgenv().ValkyrieSession == SessionToken do
+        for _, Track in ipairs({ 3, 4 }) do
+            local Reply = Request("claimSeasonPass", "seasonPassResult", { track = Track })
+            if Reply and Reply.success then
+                Webhook.Push("Rewards Claimed", "seasonpass:" .. Track .. ":" .. os.time(), Webhook.T("ClaimedSeasonPass"))
+            end
+            task.wait(1)
+        end
+        task.wait(60)
+    end
+end
+
+-- Daily Gift ของ Daily Deals (lobby.modules.DailyDeals): ของฟรีวันละครั้ง - GiftReady() = ปุ่มของเกมขึ้นว่ารับได้
+-- claimDailyGift(requestId u16) -> dailyDealsResult{ action, success, requestId, reason }
+function Lobby.DailyGiftLoop()
+    local Deals = SafeRequire(ReplicatedStorage, "lobby", "modules", "DailyDeals")
+    local Tried = 0
+    while Settings().AutoClaimDailyGift and getgenv().ValkyrieSession == SessionToken do
+        local Ok, Ready = pcall(function() return Deals.GiftReady() end)
+        -- อ่านสถานะไม่ได้ (โมดูลยังไม่พร้อม) = ลองกดทุก 10 นาที
+        if (Ok and Ready) or (not Ok and os.clock() - Tried > 600) then
+            Tried = os.clock()
+            RequestId = RequestId % 65535 + 1
+            local Id, Reply = RequestId, nil
+            local Hook = Lobby.Packets.dailyDealsResult:on(function(Result)
+                if type(Result) == "table" and Result.requestId == Id then Reply = Result end
+            end)
+            Lobby.Packets.claimDailyGift:fire(Id)
+            local Waited = 0
+            while not Reply and Waited < 6 do Waited = Waited + task.wait(0.1) end
+            Unhook(Hook)
+            if Reply and Reply.success then
+                Webhook.Push("Rewards Claimed", "dailygift:" .. os.date("!%Y-%m-%d"), Webhook.T("ClaimedDailyGift"))
+            end
+        end
+        task.wait(60)
+    end
+end
+
 -- ยืนที่จุดหมาย (ค้างตำแหน่งไว้จน Done() เป็นจริง หรือหมดเวลา)
 local function StandAt(Position, Seconds, Done)
     local Hrp = Root()
@@ -5606,16 +6024,13 @@ local function ClaimGroupLoop()
         local Last = GroupClaimedAt.Get()
         if Joining() or not (Prompt and Hrp) or (Last and os.time() - Last < 1800) then
             task.wait(10)
-            continue
-        end
-        if not GroupClaimedAt.InGroup() then
+        elseif not GroupClaimedAt.InGroup() then
             if not GroupClaimedAt.Warned then
                 GroupClaimedAt.Warned = true
                 OnUi(function() Library:Notify("Valkyrie Hub", "Group Rewards: join the game's group first", 6) end)
             end
             task.wait(60)
-            continue
-        end
+        else
 
         local Anchor = Prompt.Parent
         local Spot = (Anchor:IsA("Attachment") and Anchor.WorldPosition) or (Anchor:IsA("BasePart") and Anchor.Position) or Zone.Position
@@ -5643,6 +6058,7 @@ local function ClaimGroupLoop()
             OnUi(function() Library:Notify("Valkyrie Hub", "Group Rewards: " .. tostring(Notice), 6) end)
         end
         task.wait(10)
+        end
     end
 end
 
@@ -5690,7 +6106,9 @@ local function DeliveryLoop()
     local Back = Hrp and Hrp.CFrame
     local Fails = 0
     while Settings().AutoDelivery and getgenv().ValkyrieSession == SessionToken do
-        if Joining() then task.wait(5) continue end
+        if Joining() then
+            task.wait(5)
+        else
         local Now = Act("refresh")
         if not Now then
             task.wait(5)
@@ -5726,6 +6144,7 @@ local function DeliveryLoop()
             StopToggle("AZAutoDelivery", "AutoDelivery", "Delivery: " .. tostring(State and State.reason ~= "" and State.reason or "stuck - try a run by hand"))
             break
         end
+        end
     end
     Unhook(Hook)
     if Back then TweenTo(Back.Position) end
@@ -5740,6 +6159,14 @@ local function RedeemAllCodes()
     local Last = nil
     local Hook = Lobby.Packets.showNotification:on(function(Result)
         if type(Result) == "table" and type(Result.text) == "string" and Result.text:find("^Code ") then Last = Result.text end
+    end)
+    -- อัปเดต Solar Radiance: ผลมาทาง redeemCodeResult{ status, level } (CodesWindowHandler) - Redeemed / Expired
+    -- (โค้ดหมดอายุยังได้ 25%) / Used / Level / Group / Invalid / Other -> แปลงเป็นข้อความแบบเดิม
+    local Packet = Lobby.Packets.redeemCodeResult
+    local Hook2 = Packet and Packet:on(function(Result)
+        if type(Result) ~= "table" then return end
+        local Status = tostring(Result.status)
+        Last = (Status == "Redeemed" or Status == "Expired") and ("Code redeemed (" .. Status .. ")") or ("Code " .. Status)
     end)
     -- โค้ดจากประกาศอัปเดต (เกมไม่ส่งรายการโค้ดมาแล้ว) + ของเกมถ้ากลับมามี
     local Codes = { SORRY4DELAY = true, UPDATE3LEGACY = true, ["3TIMESACHARM"] = true }
@@ -5762,6 +6189,7 @@ local function RedeemAllCodes()
         task.wait(1.5)
     end
     Unhook(Hook)
+    if Hook2 then Unhook(Hook2) end
     OnUi(function() Library:Notify("Valkyrie Hub", ("Codes: %d new / %d tried"):format(Fresh, Total), 6) end)
 end
 
@@ -5976,8 +6404,7 @@ function Guild.QuestLoop()
         local Info = State and State.Guild
         if type(Info) ~= "table" then
             task.wait(60) -- ยังไม่มีกิลด์ = รอ (ไม่ปิด toggle เผื่อเข้ากิลด์ทีหลัง)
-            continue
-        end
+        else
         local Points = 0
         for _, Member in ipairs(Info.Members or { }) do
             if Member.Id == LocalPlayer.UserId then Points = tonumber(Member.WeekPts) or 0 end
@@ -5999,6 +6426,7 @@ function Guild.QuestLoop()
             end
         end
         task.wait(30)
+        end
     end
 end
 
@@ -6053,6 +6481,7 @@ local LobbyLoops = {
     AutoSummon = SummonLoop,
     AutoTraitReroll = TraitLoop,
     AutoEmote = EmoteLoop,
+    AutoBuyEmote = Lobby.BuyEmoteLoop,
     AutoConvertGems = GemLoop,
     AutoEvolve = EvolveLoop,
     AutoBuyMaterials = BuyMaterialLoop,
@@ -6068,6 +6497,8 @@ local LobbyLoops = {
     AutoClaimQuests = ClaimQuestLoop,
     AutoClaimAchievements = ClaimAchievementLoop,
     AutoClaimLevelRoad = ClaimLevelRoadLoop,
+    AutoClaimSeasonPass = Lobby.SeasonPassLoop,
+    AutoClaimDailyGift = Lobby.DailyGiftLoop,
     AutoClaimGroup = ClaimGroupLoop,
     AutoEnterAfk = EnterAfkLoop,
     AutoDelivery = DeliveryLoop,
@@ -6166,6 +6597,7 @@ JoinSection:Toggle({
     end
 })
 
+do -- scope the Auto Join dropdown locals (keeps the main chunk under luac's 200-local limit for the obfuscator)
 local CurrentMode = ModeOf(Settings().AutoJoinMode)
 local CurrentMap = MapOf(CurrentMode, Settings().AutoJoinMap)
 local MapDropdown, ChapterDropdown, DifficultyDropdown
@@ -6186,7 +6618,7 @@ JoinSection:Dropdown({
         SaveSetting()
         if MapDropdown then MapDropdown:Refresh(MapNames(Mode), Map.Name) end
         if ChapterDropdown then ChapterDropdown:Refresh(ChapterNames(Map), ChapterNames(Map)[1]) end
-        if DifficultyDropdown then DifficultyDropdown:Refresh(DifficultyOptions(Mode), PickDifficulty(Mode)) end
+        if DifficultyDropdown then DifficultyDropdown:Refresh(DifficultyOptions(Mode, Map), PickDifficulty(Mode, Map)) end
     end
 })
 
@@ -6201,11 +6633,14 @@ MapDropdown = JoinSection:Dropdown({
         if type(Value) ~= "string" or Value == "" then return end
         Settings().AutoJoinMap = Value
         SaveSetting()
-        local Map = MapOf(ModeOf(Settings().AutoJoinMode), Value)
+        local Mode = ModeOf(Settings().AutoJoinMode)
+        local Map = MapOf(Mode, Value)
         if ChapterDropdown then
             local Wanted = "Act " .. tostring(Settings().AutoJoinChapter)
             ChapterDropdown:Refresh(ChapterNames(Map), table.find(ChapterNames(Map), Wanted) and Wanted or ChapterNames(Map)[1])
         end
+        -- Raid: Evil Reflection เลือกความยากได้ / แมพอื่น Nightmare อย่างเดียว
+        if DifficultyDropdown then DifficultyDropdown:Refresh(DifficultyOptions(Mode, Map), PickDifficulty(Mode, Map)) end
     end
 })
 
@@ -6228,16 +6663,16 @@ ChapterDropdown = JoinSection:Dropdown({
 
 DifficultyDropdown = JoinSection:Dropdown({
     Name = "Difficulty",
-    Description = "Options follow the mode - Raid is Nightmare only",
+    Description = "Options follow the mode - Raid is Nightmare only (Evil Reflection lets you pick)",
     Flag = "AZAutoJoinDifficulty",
     Seperator = false,
-    Items = DifficultyOptions(CurrentMode),
+    Items = DifficultyOptions(CurrentMode, CurrentMap),
     KeepOrder = true,
-    Default = PickDifficulty(CurrentMode),
+    Default = PickDifficulty(CurrentMode, CurrentMap),
     Callback = function(Value)
         if type(Value) ~= "string" or Value == "" then return end
-        -- โหมดความยากตายตัว (Raid) = ตัวเลือกเดียว ไม่เซฟทับ - กลับไป Story/Infinite แล้วได้ค่าเดิม
-        if ModeOf(Settings().AutoJoinMode).Fixed then return end
+        -- ความยากตายตัว (Raid ที่เลือกไม่ได้) = ตัวเลือกเดียว ไม่เซฟทับ - กลับไป Story/Infinite แล้วได้ค่าเดิม
+        if #DifficultyOptions(ModeOf(Settings().AutoJoinMode)) == 1 then return end
         Settings().AutoJoinDifficulty = Value
         SaveSetting()
     end
@@ -6258,6 +6693,7 @@ JoinSection:Dropdown({
         Join.Refresh()
     end
 })
+end
 
 
 do
@@ -6374,7 +6810,8 @@ BattleToggle("Auto Attack", "AutoAttack", "Keep M1 held on the nearest enemy and
 BattleToggle("Auto Skill", "AutoSkill", "Use skills 1-3 once the whole wave has spawned, and on Story walls")
 BattleToggle("Auto Tag Team", "AutoTagTeam", "Uses up this character's skills, then swaps right away if the other one has a skill ready (the Tag-In +20% damage still procs)")
 BattleToggle("Auto Ultimate", "AutoUltimate", "Fire the ultimate as soon as the bar is full")
-BattleToggle("Auto Collect Drops", "AutoCollectDrops", "Pick up cash drops once the area is clear", true)
+BattleToggle("Auto Collect Drops", "AutoCollectDrops", "Pick up cash drops once the area is clear")
+BattleToggle("Auto Pick Blessing", "AutoBlessing", "Escape / Evil Reflection - picks a blessing card as soon as the 3 cards show up (order from Blessing Focus)", true)
 
 -- Dropdown
 BattleSection:Dropdown({
@@ -6401,6 +6838,17 @@ BattleSection:Dropdown({
 })
 
 BattleSection:Dropdown({
+    Name = "Blessing Focus",
+    Description = "Damage = Glass Cannon, Sharper Edge first / Survival = Spare Heart, Mirror Armor first",
+    Flag = "AZBlessingFocus",
+    Seperator = false,
+    Items = { "Damage", "Survival" },
+    KeepOrder = true,
+    Default = Settings().BlessingFocus,
+    Callback = JoinSetting("BlessingFocus")
+})
+
+BattleSection:Dropdown({
     Name = "Ultimate Target",
     Flag = "AZUltimateTarget",
     Items = { "Any Enemy", "Boss Only" },
@@ -6412,6 +6860,7 @@ BattleSection:Dropdown({
 
 -- Slider
 BattleSlider("Height Offset", "PositionHeight", 2, 15, "Studs above / below the target (Above, Below, Orbit)", " studs")
+BattleSlider("Boss Height", "BossLift", 0, 20, "Extra lift over a boss's feet (0 = same height as normal enemies) - higher dodges more attacks, M1 lands less", " studs")
 BattleSlider("Orbit Radius", "OrbitRadius", 2, 15, "How far from the target you circle (Orbit)", " studs")
 BattleSlider("Orbit Speed", "OrbitSpeed", 1, 10, "How fast you circle the target (Orbit)", "")
 BattleSlider("Teleport Step", "TpStep", 0, 20, "In a match, moves by teleporting this far every frame (0 = smooth flight)", " studs")
@@ -6517,7 +6966,19 @@ SummonSection:Dropdown({
 -- Trait Reroll
 local TraitSection = SummonPage:Section({ Name = "Trait Reroll", Icon = "wand-2", Side = 1 })
 
-LobbyToggle(TraitSection, "Auto Reroll", "AutoTraitReroll", "Lobby only - rerolls until one of the kept traits lands", true)
+LobbyToggle(TraitSection, "Auto Reroll", "AutoTraitReroll", "Lobby only - rerolls until one of the kept traits lands", false)
+
+TraitSection:Toggle({
+    Name = "Bulk Roll",
+    Description = "Up to 1000 rolls per request - the server stops by itself on a kept trait or any Mythic (much faster than one by one)",
+    Flag = "AZTraitBulk",
+    Default = Settings().TraitBulk,
+    Seperator = true,
+    Callback = function(Value)
+        Settings().TraitBulk = Value
+        SaveSetting()
+    end
+})
 
 -- โชว์ชื่อตัว (Shadow Monarch) แต่เซฟ/ส่ง id (sung_jinwoo) - ตารางชื่อ -> id (Lobby.TraitIds) มาจากเธรดงานด้านล่าง
 Lobby.TraitIds = { }
@@ -6550,7 +7011,41 @@ TraitSection:Dropdown({
 -- Emote Shop
 local EmoteSection = SummonPage:Section({ Name = "Emote Shop", Icon = "shirt", Side = 2 })
 
-LobbyToggle(EmoteSection, "Auto Purchase Emote", "AutoEmote", "Lobby only - rolls an emote whenever you have 5 dice rolls")
+LobbyToggle(EmoteSection, "Auto Purchase Emote", "AutoEmote", "Lobby only - rolls an emote whenever you have 5 dice rolls", true)
+LobbyToggle(EmoteSection, "Auto Buy Emote", "AutoBuyEmote", "Lobby only - buys the picked emotes straight from the shop (skips owned ones and what you can't afford)", false)
+
+do -- local ระดับบนเต็ม 200
+-- ท่าทางที่ซื้อได้ (emotesConfig ไม่นับ exclusive Trophy 1st/2nd/3rd) วันที่ 2026-10-18 / ราคา Dice-Lucky: Common 200-1500,
+-- Epic 300-2500, Legendary 500-4000, Mythic 1700-6500, Arcane 10500-10000, LYTH 17000-15000 (Take The L = 25000 Lucky)
+local EmoteNames = {
+    "Caipirinha", "Five More Hours", "Electro Shuffle", "Lag Train", "Wierd Dance", "Competent", "Streetcat 2", "Party Rock",
+    "Shuffle", "Ballin", "Boogie", "Floss", "Streetcat 1", "Dance Alone", "Smug Dance",
+    "Dxrk Walk", "Swaguh", "KKick", "Tidy Up", "Hai Yorokonde", "Upside Down", "Static",
+    "Jump Style", "bro...", "Vibin", "Jax Toy", "Liar Dancer",
+    "Garfield", "La Primavera", "Take The L",
+}
+
+EmoteSection:Dropdown({
+    Name = "Emotes to Buy",
+    Flag = "AZEmoteBuyList",
+    Items = EmoteNames,
+    KeepOrder = true,
+    Multi = true,
+    Default = Settings().EmoteBuyList,
+    Seperator = false,
+    Callback = JoinSetting("EmoteBuyList")
+})
+
+EmoteSection:Dropdown({
+    Name = "Pay With",
+    Flag = "AZEmoteBuyCurrency",
+    Items = { "Dice", "Lucky Spins" },
+    KeepOrder = true,
+    Default = Settings().EmoteBuyCurrency,
+    Seperator = false,
+    Callback = JoinSetting("EmoteBuyCurrency")
+})
+end
 
 -- Lucky Spin
 local LuckySection = SummonPage:Section({ Name = "Lucky Spin", Icon = "coins", Side = 2 })
@@ -6632,7 +7127,7 @@ EvolutionSection:Toggle({
 
 do
 -- ชื่อในรายการ = id ตัวละคร (ตัวแรกพิมพ์ใหญ่, _ = เว้นวรรค) -> เก็บเป็น id (sung_jinwoo)
-local EvolveTargets = { "Auto", "Sung Jinwoo", "Hutao", "Astra Yao", "Frieren", "Rin", "Ye Shunguang", "Miyabi", "Sukuna", "Shanks", "Katakuri", "Saber", "Guts", "Alucard", "Juuzou", "Nagumo", "Luffy", "Goku", "Killua" }
+local EvolveTargets = { "Auto", "Sung Jinwoo", "Hutao", "Cha Hae In", "Chisa", "Astra Yao", "Frieren", "Rin", "Ye Shunguang", "Miyabi", "Sukuna", "Shanks", "Katakuri", "Saber", "Guts", "Alucard", "Juuzou", "Nagumo", "Luffy", "Goku", "Killua" }
 EvolutionSection:Dropdown({
     Name = "Evolve Target",
     Description = "Auto = rarest owned character that still misses materials",
@@ -6881,6 +7376,8 @@ LobbyToggle(RewardSection, "Auto Claim Daily Rewards", "AutoClaimDaily", "Lobby 
 LobbyToggle(RewardSection, "Auto Claim Quests", "AutoClaimQuests", "Lobby only - Daily / Weekly / Limited-Time, every finished quest")
 LobbyToggle(RewardSection, "Auto Claim Achievements", "AutoClaimAchievements", "Lobby only - every finished achievement")
 LobbyToggle(RewardSection, "Auto Claim Level Road", "AutoClaimLevelRoad", "Lobby only - every milestone up to your level")
+LobbyToggle(RewardSection, "Auto Claim Season Pass", "AutoClaimSeasonPass", "Lobby only - claims every Season Pass tier you reached (Free, and Premium if owned)")
+LobbyToggle(RewardSection, "Auto Claim Daily Gift", "AutoClaimDailyGift", "Lobby only - the free gift in Daily Deals, once a day")
 LobbyToggle(RewardSection, "Auto Claim Group Rewards", "AutoClaimGroup", "Lobby only - walks to the group chest and claims it (you must be in the group)")
 
 -- Guild
@@ -7299,7 +7796,8 @@ end
 function Site.Match()
     local Mode = workspace:GetAttribute("Mode")
     if IsLobby or type(Mode) ~= "string" then return nil end
-    local Names = { hxh = "Story - Hxh", sololevelingraid = "Raid - Shadow Gate", spiritedawayraid = "Raid - Spirit's Bathtub", sakamoto = "Defend", zzz = "Infinite - ZZZ World" }
+    local Names = { hxh = "Story - Hxh", sololevelingraid = "Raid - Shadow Gate", spiritedawayraid = "Raid - Spirit's Bathtub", sakamoto = "Defend", zzz = "Infinite - ZZZ World",
+        fateraid = "Raid - Evil Reflection", floodescape = "Escape - Tidal High Rise" }
     local Map = Names[Mode] or Mode
     local Run = Webhook.Config("game", "stores", "runStore")
     local State = Run and Run.store and Run.store.state
@@ -7375,10 +7873,11 @@ function Site.Payload()
         local Entry = Data and Data.UnlockedCharacters and Data.UnlockedCharacters["Slot" .. Slot]
         local Row = { slot = Slot, locked = true }
         -- 15 ช่อง (อัปเดต 3): ส่งช่องที่ปลดแล้ว + ช่องล็อกช่องแรก (ช่องถัดไปที่ซื้อได้)
+        local Skip = false
         if not (type(Entry) == "table" and Entry.Unlocked) then
-            if ShownLocked then continue end
-            ShownLocked = true
+            if ShownLocked then Skip = true else ShownLocked = true end
         end
+        if not Skip then
         if type(Entry) == "table" and Entry.Unlocked then
             local Id = type(Entry.Character) == "string" and Entry.Character or ""
             local Pool = Id ~= "" and PoolByName(Id)
@@ -7391,6 +7890,7 @@ function Site.Payload()
             }
         end
         table.insert(Team, Row)
+        end
     end
 
     local LevelText = Level and Level.level and tostring(Level.level) or "-"
@@ -7970,6 +8470,14 @@ pcall(function() Library.Window:selectTab(1) end)
 task.delay(1, function()
     if getgenv().ValkyrieSession == SessionToken then Join.Refresh() end
 end)
+
+-- การ์ด blessing (Escape / Evil Reflection): ฟัง FateOffer ตลอดในแมตช์ ไม่ต้องเปิด Auto Battle
+if IsMatch then
+    TrackConnection(LocalPlayer:GetAttributeChangedSignal("FateOffer"):Connect(function()
+        if getgenv().ValkyrieSession == SessionToken then task.delay(0.3, Battle.PickBlessing) end
+    end))
+    task.defer(Battle.PickBlessing)
+end
 
 ---- ============ เริ่มระบบที่เซฟว่าเปิดไว้ ============ ----
 --
